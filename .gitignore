@@ -1,0 +1,10 @@
+# Binaries
+bin/
+main
+
+# Environment variables
+.env
+
+# Temporary files
+tmp/
+*.log
