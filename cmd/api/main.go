@@ -1,6 +1,8 @@
 package main
 
 import (
+	"log"
+
 	"github.com/gin-gonic/gin"
 	"github.com/once-human/bventy-backend/internal/config"
 	"github.com/once-human/bventy-backend/internal/db"
@@ -21,6 +23,12 @@ func main() {
 	// Step 3: Register routes
 	routes.RegisterRoutes(r)
 
+	// DEBUG: Print all registered routes
+	for _, route := range r.Routes() {
+		log.Printf("Route: %s %s", route.Method, route.Path)
+	}
+
 	// Step 4: Run server
-	r.Run(":8080")
+	log.Printf("Starting server on port %s...", cfg.ServerPort)
+	r.Run(":" + cfg.ServerPort)
 }
