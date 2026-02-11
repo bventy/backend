@@ -16,9 +16,12 @@ func RegisterRoutes(r *gin.Engine) {
 	vendorHandler := handlers.NewVendorHandler()
 	organizerHandler := handlers.NewOrganizerHandler()
 	adminHandler := handlers.NewAdminHandler()
+	userHandler := handlers.NewUserHandler()
 
 	// Public Routes
 	r.GET("/health", handlers.HealthCheck)
+	r.GET("/vendors", vendorHandler.ListVerifiedVendors)
+	r.GET("/vendors/slug/:slug", vendorHandler.GetVendorBySlug)
 	
 	authGroup := r.Group("/auth")
 	{
@@ -30,27 +33,35 @@ func RegisterRoutes(r *gin.Engine) {
 	protected := r.Group("/")
 	protected.Use(middleware.AuthMiddleware(cfg))
 	{
-		// Vendor
-		vendorRoutes := protected.Group("/vendor")
-		vendorRoutes.Use(middleware.RoleMiddleware("vendor"))
-		{
-			vendorRoutes.POST("/onboard", vendorHandler.OnboardVendor)
-		}
+		// Dashboard
+		protected.GET("/me", userHandler.GetMe)
 
-		// Organizer
-		organizerRoutes := protected.Group("/organizer")
-		organizerRoutes.Use(middleware.RoleMiddleware("organizer"))
-		{
-			organizerRoutes.POST("/onboard", organizerHandler.OnboardOrganizer)
-		}
+		// Vendor Onboarding
+		protected.POST("/vendor/onboard", vendorHandler.OnboardVendor)
 
-		// Admin
+		// Organizer Onboarding
+		protected.POST("/organizer/onboard", organizerHandler.OnboardOrganizer)
+
+		// Admin Routes (Role: Staff/Admin/SuperAdmin + Permissions)
 		adminRoutes := protected.Group("/admin")
-		adminRoutes.Use(middleware.RoleMiddleware("admin"))
+		// Require at least 'staff' role to access admin routes base, though specific endpoints check permissions
+		adminRoutes.Use(middleware.RequireRole("staff")) 
 		{
-			adminRoutes.GET("/vendors/pending", adminHandler.GetPendingVendors)
-			adminRoutes.POST("/vendors/:id/verify", adminHandler.VerifyVendor)
-			adminRoutes.POST("/vendors/:id/reject", adminHandler.RejectVendor)
+			// Vendor Management
+			adminRoutes.GET("/vendors/pending", middleware.RequirePermission("vendor.verify"), adminHandler.GetPendingVendors)
+			adminRoutes.POST("/vendors/:id/verify", middleware.RequirePermission("vendor.verify"), adminHandler.VerifyVendor)
+			adminRoutes.POST("/vendors/:id/reject", middleware.RequirePermission("vendor.verify"), adminHandler.RejectVendor)
+			
+			// User Management
+			// Promote Staff: Admin or SuperAdmin
+			adminRoutes.POST("/users/:id/promote-staff", middleware.RequireRole("admin"), userHandler.PromoteToStaff)
+		}
+
+		// Super Admin Routes
+		superAdminRoutes := protected.Group("/superadmin")
+		superAdminRoutes.Use(middleware.RequireRole("super_admin"))
+		{
+			superAdminRoutes.POST("/users/:id/promote-admin", userHandler.PromoteToAdmin)
 		}
 	}
 }

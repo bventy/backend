@@ -14,17 +14,12 @@ func NewAdminHandler() *AdminHandler {
 	return &AdminHandler{}
 }
 
-type Vendor struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Category     string `json:"category"`
-	City         string `json:"city"`
-	Status       string `json:"status"`
-	WhatsappLink string `json:"whatsapp_link"`
-}
-
 func (h *AdminHandler) GetPendingVendors(c *gin.Context) {
-	query := `SELECT id, name, category, city, status, whatsapp_link FROM vendors WHERE status = 'pending'`
+	query := `
+		SELECT id, name, slug, category, city, status, whatsapp_link 
+		FROM vendor_profiles 
+		WHERE status = 'pending'
+	`
 	rows, err := db.Pool.Query(context.Background(), query)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch vendors"})
@@ -32,13 +27,21 @@ func (h *AdminHandler) GetPendingVendors(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var vendors []Vendor
+	var vendors []gin.H
 	for rows.Next() {
-		var v Vendor
-		if err := rows.Scan(&v.ID, &v.Name, &v.Category, &v.City, &v.Status, &v.WhatsappLink); err != nil {
+		var id, name, slug, category, city, status, whatsappLink string
+		if err := rows.Scan(&id, &name, &slug, &category, &city, &status, &whatsappLink); err != nil {
 			continue
 		}
-		vendors = append(vendors, v)
+		vendors = append(vendors, gin.H{
+			"id":            id,
+			"name":          name,
+			"slug":          slug,
+			"category":      category,
+			"city":          city,
+			"status":        status,
+			"whatsapp_link": whatsappLink,
+		})
 	}
 
 	c.JSON(http.StatusOK, vendors)
@@ -46,7 +49,7 @@ func (h *AdminHandler) GetPendingVendors(c *gin.Context) {
 
 func (h *AdminHandler) VerifyVendor(c *gin.Context) {
 	vendorID := c.Param("id")
-	query := `UPDATE vendors SET status = 'verified' WHERE id = $1 RETURNING id`
+	query := `UPDATE vendor_profiles SET status = 'verified' WHERE id = $1 RETURNING id`
 	var id string
 	err := db.Pool.QueryRow(context.Background(), query, vendorID).Scan(&id)
 	if err != nil {
@@ -59,7 +62,7 @@ func (h *AdminHandler) VerifyVendor(c *gin.Context) {
 
 func (h *AdminHandler) RejectVendor(c *gin.Context) {
 	vendorID := c.Param("id")
-	query := `UPDATE vendors SET status = 'rejected' WHERE id = $1 RETURNING id`
+	query := `UPDATE vendor_profiles SET status = 'rejected' WHERE id = $1 RETURNING id`
 	var id string
 	err := db.Pool.QueryRow(context.Background(), query, vendorID).Scan(&id)
 	if err != nil {

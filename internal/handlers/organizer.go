@@ -15,8 +15,8 @@ func NewOrganizerHandler() *OrganizerHandler {
 }
 
 type OnboardOrganizerRequest struct {
-	Name         string `json:"name" binding:"required"`
-	Organization string `json:"organization"`
+	DisplayName string `json:"display_name" binding:"required"`
+	City        string `json:"city" binding:"required"`
 }
 
 func (h *OrganizerHandler) OnboardOrganizer(c *gin.Context) {
@@ -33,13 +33,13 @@ func (h *OrganizerHandler) OnboardOrganizer(c *gin.Context) {
 	}
 
 	query := `
-		INSERT INTO organizers (user_id, name, organization)
+		INSERT INTO organizer_profiles (user_id, display_name, city)
 		VALUES ($1, $2, $3)
 		RETURNING id
 	`
 
 	var organizerID string
-	err := db.Pool.QueryRow(context.Background(), query, userID, req.Name, req.Organization).Scan(&organizerID)
+	err := db.Pool.QueryRow(context.Background(), query, userID, req.DisplayName, req.City).Scan(&organizerID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to onboard organizer: " + err.Error()})
 		return

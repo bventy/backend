@@ -22,7 +22,6 @@ func NewAuthHandler(cfg *config.Config) *AuthHandler {
 type SignupRequest struct {
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required,min=6"`
-	Role     string `json:"role" binding:"required,oneof=organizer vendor admin"`
 }
 
 func (h *AuthHandler) Signup(c *gin.Context) {
@@ -39,16 +38,31 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 		return
 	}
 
-	// Insert user
+	// Insert user with default role 'user'
 	var userID string
-	query := `INSERT INTO users (email, password_hash, role) VALUES ($1, $2, $3) RETURNING id`
-	err = db.Pool.QueryRow(context.Background(), query, req.Email, string(hashedPassword), req.Role).Scan(&userID)
+	query := `INSERT INTO users (email, password_hash, role) VALUES ($1, $2, 'user') RETURNING id`
+	err = db.Pool.QueryRow(context.Background(), query, req.Email, string(hashedPassword)).Scan(&userID)
 	if err != nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "User already exists or database error"})
+		c.JSON(http.StatusConflict, gin.H{"error": "User already exists"})
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"message": "User created successfully", "user_id": userID})
+	// Generate token immediately for convenience
+	token, err := auth.GenerateToken(userID, "user", h.Config)
+	if err != nil {
+		c.JSON(http.StatusCreated, gin.H{"message": "User created, please login", "user_id": userID})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"message": "User created successfully",
+		"token":   token,
+		"user": gin.H{
+			"id":    userID,
+			"email": req.Email,
+			"role":  "user",
+		},
+	})
 }
 
 type LoginRequest struct {
@@ -83,5 +97,5 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"token": token, "role": role})
+	c.JSON(http.StatusOK, gin.H{"token": token, "role": role, "user_id": userID})
 }
