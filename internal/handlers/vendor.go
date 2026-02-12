@@ -16,18 +16,11 @@ func NewVendorHandler() *VendorHandler {
 }
 
 type OnboardVendorRequest struct {
-	Name         string `json:"name" binding:"required"`
+	BusinessName string `json:"business_name" binding:"required"`
 	Category     string `json:"category" binding:"required"`
 	City         string `json:"city" binding:"required"`
 	Bio          string `json:"bio"`
 	WhatsappLink string `json:"whatsapp_link" binding:"required"`
-}
-
-func generateSlug(name, city string) string {
-	slug := strings.ToLower(name + "-" + city)
-	slug = strings.ReplaceAll(slug, " ", "-")
-	slug = strings.ReplaceAll(slug, "--", "-") // cleanup double dashes
-	return slug
 }
 
 func (h *VendorHandler) OnboardVendor(c *gin.Context) {
@@ -43,20 +36,20 @@ func (h *VendorHandler) OnboardVendor(c *gin.Context) {
 		return
 	}
 
-	slug := generateSlug(req.Name, req.City)
+	slug := generateSlug(req.BusinessName, req.City)
 
 	// Insert into vendor_profiles
 	query := `
-		INSERT INTO vendor_profiles (user_id, name, slug, category, city, bio, whatsapp_link, status)
+		INSERT INTO vendor_profiles (owner_user_id, business_name, slug, category, city, bio, whatsapp_link, status)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
 		RETURNING id
 	`
 
 	var vendorID string
-	err := db.Pool.QueryRow(context.Background(), query, userID, req.Name, slug, req.Category, req.City, req.Bio, req.WhatsappLink).Scan(&vendorID)
+	err := db.Pool.QueryRow(context.Background(), query, userID, req.BusinessName, slug, req.Category, req.City, req.Bio, req.WhatsappLink).Scan(&vendorID)
 	if err != nil {
 		if strings.Contains(err.Error(), "unique constraint") {
-			c.JSON(http.StatusConflict, gin.H{"error": "Vendor profile already exists or slug conflict"})
+			c.JSON(http.StatusConflict, gin.H{"error": "Vendor profile already exists for this user or slug conflict"})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to onboard vendor: " + err.Error()})
@@ -66,10 +59,9 @@ func (h *VendorHandler) OnboardVendor(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"message": "Vendor profile created successfully", "vendor_id": vendorID, "slug": slug})
 }
 
-// Public Endpoint
 func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 	query := `
-		SELECT name, slug, category, city, bio, whatsapp_link 
+		SELECT business_name, slug, category, city, bio, whatsapp_link 
 		FROM vendor_profiles 
 		WHERE status = 'verified'
 	`
@@ -87,7 +79,7 @@ func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 			continue
 		}
 		vendors = append(vendors, gin.H{
-			"name":          name,
+			"business_name": name,
 			"slug":          slug,
 			"category":      category,
 			"city":          city,
@@ -99,11 +91,10 @@ func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 	c.JSON(http.StatusOK, vendors)
 }
 
-// Public Endpoint
 func (h *VendorHandler) GetVendorBySlug(c *gin.Context) {
 	slug := c.Param("slug")
 	query := `
-		SELECT name, slug, category, city, bio, whatsapp_link 
+		SELECT business_name, slug, category, city, bio, whatsapp_link 
 		FROM vendor_profiles 
 		WHERE slug = $1 AND status = 'verified'
 	`
@@ -116,7 +107,7 @@ func (h *VendorHandler) GetVendorBySlug(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"name":          name,
+		"business_name": name,
 		"slug":          s,
 		"category":      category,
 		"city":          city,

@@ -16,7 +16,7 @@ func NewAdminHandler() *AdminHandler {
 
 func (h *AdminHandler) GetPendingVendors(c *gin.Context) {
 	query := `
-		SELECT id, name, slug, category, city, status, whatsapp_link 
+		SELECT id, business_name, slug, category, city, status, whatsapp_link 
 		FROM vendor_profiles 
 		WHERE status = 'pending'
 	`
@@ -35,7 +35,7 @@ func (h *AdminHandler) GetPendingVendors(c *gin.Context) {
 		}
 		vendors = append(vendors, gin.H{
 			"id":            id,
-			"name":          name,
+			"business_name": name,
 			"slug":          slug,
 			"category":      category,
 			"city":          city,
