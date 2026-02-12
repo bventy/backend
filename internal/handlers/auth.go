@@ -22,6 +22,9 @@ func NewAuthHandler(cfg *config.Config) *AuthHandler {
 type SignupRequest struct {
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required,min=6"`
+	FullName string `json:"full_name" binding:"required"`
+	Username string `json:"username"`
+	Phone    string `json:"phone"`
 }
 
 func (h *AuthHandler) Signup(c *gin.Context) {
@@ -31,23 +34,38 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 		return
 	}
 
-	// Hash password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
 		return
 	}
 
-	// Insert user with default role 'user'
 	var userID string
-	query := `INSERT INTO users (email, password_hash, role) VALUES ($1, $2, 'user') RETURNING id`
-	err = db.Pool.QueryRow(context.Background(), query, req.Email, string(hashedPassword)).Scan(&userID)
+	// Handle empty username as NULL
+	var usernameArg interface{} = req.Username
+	if req.Username == "" {
+		usernameArg = nil
+	}
+
+	// role defaults to 'user' in DB
+	query := `
+		INSERT INTO users (email, password_hash, full_name, username, phone)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id
+	`
+	err = db.Pool.QueryRow(context.Background(), query, 
+		req.Email, 
+		string(hashedPassword), 
+		req.FullName, 
+		usernameArg, 
+		req.Phone,
+	).Scan(&userID)
+
 	if err != nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "User already exists"})
+		c.JSON(http.StatusConflict, gin.H{"error": "User already exists or valid constraint failed"})
 		return
 	}
 
-	// Generate token immediately for convenience
 	token, err := auth.GenerateToken(userID, "user", h.Config)
 	if err != nil {
 		c.JSON(http.StatusCreated, gin.H{"message": "User created, please login", "user_id": userID})
@@ -58,9 +76,10 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 		"message": "User created successfully",
 		"token":   token,
 		"user": gin.H{
-			"id":    userID,
-			"email": req.Email,
-			"role":  "user",
+			"id":        userID,
+			"email":     req.Email,
+			"full_name": req.FullName,
+			"role":      "user",
 		},
 	})
 }
@@ -77,9 +96,9 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	var userID, role, passwordHash string
-	query := `SELECT id, role, password_hash FROM users WHERE email = $1`
-	err := db.Pool.QueryRow(context.Background(), query, req.Email).Scan(&userID, &role, &passwordHash)
+	var userID, role, passwordHash, fullName string
+	query := `SELECT id, role, password_hash, full_name FROM users WHERE email = $1`
+	err := db.Pool.QueryRow(context.Background(), query, req.Email).Scan(&userID, &role, &passwordHash, &fullName)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 		return
@@ -97,5 +116,10 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"token": token, "role": role, "user_id": userID})
+	c.JSON(http.StatusOK, gin.H{
+		"token":     token,
+		"role":      role,
+		"user_id":   userID,
+		"full_name": fullName,
+	})
 }

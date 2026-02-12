@@ -1,24 +1,42 @@
 -- Adminer 5.4.2 PostgreSQL 16.11 dump
 
--- Extensions (Ignore errors if they exist)
+-- Extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 1. Users Table
+-- Drop everything first (Cascade)
+DROP TABLE IF EXISTS "event_shortlisted_vendors" CASCADE;
+DROP TABLE IF EXISTS "events" CASCADE;
+DROP TABLE IF EXISTS "group_members" CASCADE;
+DROP TABLE IF EXISTS "groups" CASCADE;
+DROP TABLE IF EXISTS "vendor_portfolio_images" CASCADE; -- Keeping if needed, though not in V8 spec, good to have cleanup
+DROP TABLE IF EXISTS "organizer_bookmarks" CASCADE; -- Cleanup old
+DROP TABLE IF EXISTS "organizer_profiles" CASCADE; -- Cleanup old
+DROP TABLE IF EXISTS "vendor_profiles" CASCADE;
+DROP TABLE IF EXISTS "user_permissions" CASCADE;
+DROP TABLE IF EXISTS "permissions" CASCADE;
 DROP TABLE IF EXISTS "users" CASCADE;
+
+-- 1. Users Table
 CREATE TABLE "public"."users" (
     "id" uuid DEFAULT uuid_generate_v4() NOT NULL,
     "email" text NOT NULL,
     "password_hash" text NOT NULL,
+    "full_name" text NOT NULL,
+    "username" text,
+    "phone" text,
+    "city" text,
+    "bio" text,
+    "profile_image_url" text,
     "role" text NOT NULL DEFAULT 'user',
     "created_at" timestamp DEFAULT now(),
     "updated_at" timestamp DEFAULT now(),
     CONSTRAINT "users_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "users_email_key" UNIQUE ("email"),
+    CONSTRAINT "users_username_key" UNIQUE ("username"),
     CONSTRAINT "users_role_check" CHECK (role IN ('user', 'staff', 'admin', 'super_admin'))
 ) WITH (oids = false);
 
--- 2. Permissions Table
-DROP TABLE IF EXISTS "permissions" CASCADE;
+-- 2. Permissions & User Permissions (Kept for Admin Verification requirement)
 CREATE TABLE "public"."permissions" (
     "id" uuid DEFAULT uuid_generate_v4() NOT NULL,
     "code" text NOT NULL,
@@ -27,8 +45,6 @@ CREATE TABLE "public"."permissions" (
     CONSTRAINT "permissions_code_key" UNIQUE ("code")
 ) WITH (oids = false);
 
--- 3. User Permissions (Many-to-Many)
-DROP TABLE IF EXISTS "user_permissions" CASCADE;
 CREATE TABLE "public"."user_permissions" (
     "user_id" uuid NOT NULL,
     "permission_id" uuid NOT NULL,
@@ -38,72 +54,91 @@ CREATE TABLE "public"."user_permissions" (
     CONSTRAINT "user_permissions_permission_id_fkey" FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE
 ) WITH (oids = false);
 
--- 4. Vendor Profiles
-DROP TABLE IF EXISTS "vendor_profiles" CASCADE;
+-- 3. Vendor Profiles
 CREATE TABLE "public"."vendor_profiles" (
     "id" uuid DEFAULT uuid_generate_v4() NOT NULL,
-    "user_id" uuid NOT NULL,
-    "name" text NOT NULL,
+    "owner_user_id" uuid NOT NULL,
+    "business_name" text NOT NULL,
     "slug" text NOT NULL,
     "category" text NOT NULL,
     "city" text NOT NULL,
-    "bio" text,
     "whatsapp_link" text NOT NULL,
+    "bio" text,
     "status" text DEFAULT 'pending' NOT NULL,
     "created_at" timestamp DEFAULT now(),
     "updated_at" timestamp DEFAULT now(),
     CONSTRAINT "vendor_profiles_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "vendor_profiles_user_id_key" UNIQUE ("user_id"),
+    CONSTRAINT "vendor_profiles_owner_user_id_key" UNIQUE ("owner_user_id"),
     CONSTRAINT "vendor_profiles_slug_key" UNIQUE ("slug"),
-    CONSTRAINT "vendor_profiles_user_id_fkey" FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT "vendor_profiles_owner_user_id_fkey" FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT "vendor_profiles_status_check" CHECK (status IN ('pending', 'verified', 'rejected'))
 ) WITH (oids = false);
 
 CREATE INDEX idx_vendor_status ON public.vendor_profiles USING btree (status);
 CREATE INDEX idx_vendor_slug ON public.vendor_profiles USING btree (slug);
 
--- 5. Organizer Profiles
-DROP TABLE IF EXISTS "organizer_profiles" CASCADE;
-CREATE TABLE "public"."organizer_profiles" (
+-- 4. Groups (Communities)
+CREATE TABLE "public"."groups" (
     "id" uuid DEFAULT uuid_generate_v4() NOT NULL,
-    "user_id" uuid NOT NULL,
-    "display_name" text NOT NULL,
-    "city" text NOT NULL,
+    "name" text NOT NULL,
+    "slug" text NOT NULL,
+    "description" text,
+    "city" text,
+    "owner_user_id" uuid NOT NULL,
     "created_at" timestamp DEFAULT now(),
     "updated_at" timestamp DEFAULT now(),
-    CONSTRAINT "organizer_profiles_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "organizer_profiles_user_id_key" UNIQUE ("user_id"),
-    CONSTRAINT "organizer_profiles_user_id_fkey" FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    CONSTRAINT "groups_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "groups_slug_key" UNIQUE ("slug"),
+    CONSTRAINT "groups_owner_user_id_fkey" FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
 ) WITH (oids = false);
 
--- 6. Organizer Bookmarks
-DROP TABLE IF EXISTS "organizer_bookmarks" CASCADE;
-CREATE TABLE "public"."organizer_bookmarks" (
-    "organizer_id" uuid NOT NULL,
-    "vendor_id" uuid NOT NULL,
+-- 5. Group Members
+CREATE TABLE "public"."group_members" (
+    "group_id" uuid NOT NULL,
+    "user_id" uuid NOT NULL,
+    "role" text NOT NULL DEFAULT 'member',
     "created_at" timestamp DEFAULT now(),
-    CONSTRAINT "organizer_bookmarks_pkey" PRIMARY KEY ("organizer_id", "vendor_id"),
-    CONSTRAINT "organizer_bookmarks_organizer_id_fkey" FOREIGN KEY (organizer_id) REFERENCES organizer_profiles(id) ON DELETE CASCADE,
-    CONSTRAINT "organizer_bookmarks_vendor_id_fkey" FOREIGN KEY (vendor_id) REFERENCES vendor_profiles(id) ON DELETE CASCADE
+    CONSTRAINT "group_members_pkey" PRIMARY KEY ("group_id", "user_id"),
+    CONSTRAINT "group_members_group_id_fkey" FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+    CONSTRAINT "group_members_user_id_fkey" FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT "group_members_role_check" CHECK (role IN ('member', 'manager', 'owner'))
 ) WITH (oids = false);
 
--- 7. Vendor Portfolio Images
-DROP TABLE IF EXISTS "vendor_portfolio_images" CASCADE;
-CREATE TABLE "public"."vendor_portfolio_images" (
+-- 6. Events
+CREATE TABLE "public"."events" (
     "id" uuid DEFAULT uuid_generate_v4() NOT NULL,
-    "vendor_id" uuid NOT NULL,
-    "image_url" text NOT NULL,
-    "position" integer DEFAULT 0,
+    "title" text NOT NULL,
+    "city" text NOT NULL,
+    "date" timestamp NOT NULL,
+    "budget" numeric, -- Simplified from min/max to generic budget field or we can add min/max if preferred. Prompt says "budget". Wait, prompt says "budget" in TABLES list, but "budget_min, budget_max" in REQUEST. I will use budget_min and budget_max to be safe + generic budget text/numeric. Let's use min/max numeric.
+    "budget_min" numeric,
+    "budget_max" numeric,
+    "event_type" text,
+    "organizer_user_id" uuid,
+    "organizer_group_id" uuid,
     "created_at" timestamp DEFAULT now(),
-    CONSTRAINT "vendor_portfolio_images_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "vendor_portfolio_images_vendor_id_fkey" FOREIGN KEY (vendor_id) REFERENCES vendor_profiles(id) ON DELETE CASCADE
+    "updated_at" timestamp DEFAULT now(),
+    CONSTRAINT "events_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "events_organizer_user_id_fkey" FOREIGN KEY (organizer_user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT "events_organizer_group_id_fkey" FOREIGN KEY (organizer_group_id) REFERENCES groups(id) ON DELETE CASCADE,
+    CONSTRAINT "events_owner_check" CHECK (
+        (organizer_user_id IS NOT NULL AND organizer_group_id IS NULL) OR
+        (organizer_user_id IS NULL AND organizer_group_id IS NOT NULL)
+    )
 ) WITH (oids = false);
 
--- Initial Permissions Data
+-- 7. Event Shortlisted Vendors
+CREATE TABLE "public"."event_shortlisted_vendors" (
+    "event_id" uuid NOT NULL,
+    "vendor_id" uuid NOT NULL,
+    "created_at" timestamp DEFAULT now(),
+    CONSTRAINT "event_shortlisted_vendors_pkey" PRIMARY KEY ("event_id", "vendor_id"),
+    CONSTRAINT "event_shortlisted_vendors_event_id_fkey" FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
+    CONSTRAINT "event_shortlisted_vendors_vendor_id_fkey" FOREIGN KEY (vendor_id) REFERENCES vendor_profiles(id) ON DELETE CASCADE
+) WITH (oids = false);
+
+
+-- Initial Data
 INSERT INTO permissions (code) VALUES
-('vendor.onboard.review'),
-('vendor.verify'),
-('vendor.manage'),
-('staff.manage'),
-('admin.manage')
+('vendor.verify')
 ON CONFLICT (code) DO NOTHING;
