@@ -13,13 +13,19 @@ import (
 var Pool *pgxpool.Pool
 
 func Connect(cfg *config.Config) {
-	dsn := url.URL{
-		Scheme: "postgres",
-		User:   url.UserPassword(cfg.DBUser, cfg.DBPassword),
-		Host:   fmt.Sprintf("%s:%s", cfg.DBHost, cfg.DBPort),
-		Path:   "/" + cfg.DBName,
+	var dbURL string
+
+	if cfg.DatabaseURL != "" {
+		dbURL = cfg.DatabaseURL
+	} else {
+		dsn := url.URL{
+			Scheme: "postgres",
+			User:   url.UserPassword(cfg.DBUser, cfg.DBPassword),
+			Host:   fmt.Sprintf("%s:%s", cfg.DBHost, cfg.DBPort),
+			Path:   "/" + cfg.DBName,
+		}
+		dbURL = dsn.String()
 	}
-	dbURL := dsn.String()
 
 	var err error
 	Pool, err = pgxpool.New(context.Background(), dbURL)
