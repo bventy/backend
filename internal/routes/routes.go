@@ -28,8 +28,10 @@ func RegisterRoutes(r *gin.Engine) {
 	protected := r.Group("/")
 	protected.Use(middleware.FirebaseAuthMiddleware())
 	{
+
 		// Auth
 		protected.POST("/auth/firebase-login", authHandler.FirebaseLogin)
+		protected.GET("/auth/me", authHandler.GetMe)
 
 		// User & Dashboard
 		protected.GET("/me", userHandler.GetMe)
