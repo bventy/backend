@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"strings"
 
@@ -29,19 +30,27 @@ func FirebaseAuthMiddleware() gin.HandlerFunc {
 
 		client, err := app.App.Auth(context.Background())
 		if err != nil {
+			log.Printf("Error initializing Firebase Auth client: %v", err)
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Error initializing Firebase Auth client"})
 			return
 		}
 
 		token, err := client.VerifyIDToken(context.Background(), idToken)
 		if err != nil {
+			log.Printf("Invalid or expired token: %v", err)
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
 			return
 		}
 
+		// Extract email safely
+		var email string
+		if val, ok := token.Claims["email"]; ok {
+			email, _ = val.(string)
+		}
+
 		// Store Firebase UID in context for handlers to use
 		c.Set("firebase_uid", token.UID)
-		c.Set("email", token.Claims["email"])
+		c.Set("email", email)
 
 		// Fetch user details from DB to support RBAC
 		// We ignore error here because for /auth/me (signup), the user won't exist yet.

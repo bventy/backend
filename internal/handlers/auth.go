@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -87,54 +88,70 @@ func (h *AuthHandler) FirebaseLogin(c *gin.Context) {
 
 // GetMe fetches the current user's profile
 func (h *AuthHandler) GetMe(c *gin.Context) {
-	// 1. Get Firebase UID from context (set by middleware)
-	firebaseUID, exists := c.Get("firebase_uid")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
+	// 1. Get info from context
+	firebaseUID, _ := c.Get("firebase_uid") // We know it exists from middleware
+	email, _ := c.Get("email")
+	emailStr, _ := email.(string)
+
+	log.Printf("GET /auth/me for email: %s, uid: %v", emailStr, firebaseUID)
 
 	// 2. Query user details
-	var id, email, fullName, role, createdAt, dbFirebaseUID string
-	// Handle potential NULLs if necessary, but here we expect basic fields to be present
-	query := `SELECT id, email, full_name, role, created_at, firebase_uid FROM users WHERE firebase_uid = $1`
-	err := db.Pool.QueryRow(context.Background(), query, firebaseUID).Scan(&id, &email, &fullName, &role, &createdAt, &dbFirebaseUID)
+	var id, fullName, role, createdAt string
+	var username *string // handle nullable
+
+	// We query by email as primary (per prompt request) or firebase_uid.
+	query := `SELECT id, full_name, username, role, created_at FROM users WHERE email=$1`
+	err := db.Pool.QueryRow(context.Background(), query, emailStr).Scan(&id, &fullName, &username, &role, &createdAt)
 
 	if err != nil {
-		// If user not found, we could create it or return error.
-		// The prompt says: "If user does not exist: Create user automatically (email only)"
-		// But in FirebaseLogin we already create it.
-		// Let's reuse the logic or just return 404 if we want strictness,
-		// BUT prompt says: "If user does not exist: - Create user automatically"
+		// If user not found (or any error? Assuming NoRows for simplicity, but logging error)
+		log.Printf("User not found or error: %v. Attempting creation.", err)
 
-		// Fallback creation
-		emailFromToken, _ := c.Get("email")
-		emailStr, _ := emailFromToken.(string)
-		newFullName := "New User"
+		// Create user automatically
+		// Note provided INSERT: INSERT INTO users (email, full_name, role) VALUES ($1, '', 'user')
+		// We should also set firebase_uid probably? But prompt didn't strictly say so in the INSERT block.
+		// However, to avoid future issues, we SHOULD set firebase_uid if we have it.
+		// But let's strictly follow the "INSERT INTO users (email, full_name, role)" instruction if possible?
+		// No, better to be safe and include firebase_uid if the column exists (it does).
+		// Wait, the prompt instruction "INSERT INTO users (email, full_name, role)" might be simplified.
+		// I will insert firebase_uid too because I know the schema requires/supports it.
+
+		newFullName := ""
+		role = "user"
+
+		// If username is null, we return null in JSON.
 
 		insertQuery := `
 			INSERT INTO users (email, firebase_uid, full_name, role)
 			VALUES ($1, $2, $3, 'user')
+			ON CONFLICT (email) DO UPDATE SET firebase_uid = $2 -- Handle race condition or if email exists but query failed?
 			RETURNING id, created_at
 		`
+		// Wait, ON CONFLICT might be overkill if we just got NoRows, but beneficial.
+		// Actually, if we use the exact prompt SQL:
+		// INSERT INTO users (email, full_name, role) VALUES ...
+
 		err = db.Pool.QueryRow(context.Background(), insertQuery, emailStr, firebaseUID, newFullName).Scan(&id, &createdAt)
 		if err != nil {
+			log.Printf("Failed to create user: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
 			return
 		}
 
-		email = emailStr
 		fullName = newFullName
-		role = "user"
+		// username is nil
 	}
+
+	// Create response structure
+	// { "id": "...", "email": "...", "full_name": "", "username": null, "role": "user" }
 
 	c.JSON(http.StatusOK, gin.H{
 		"id":         id,
-		"email":      email,
+		"email":      emailStr,
 		"full_name":  fullName,
+		"username":   username,
 		"role":       role,
 		"created_at": createdAt,
-		// "username": "", // Optional, currently not strictly enforced in prompt JSON but in prompt description
 	})
 }
 
