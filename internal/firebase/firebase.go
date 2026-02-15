@@ -3,7 +3,6 @@ package firebase
 import (
 	"context"
 	"log"
-	"os"
 
 	firebase "firebase.google.com/go/v4"
 	"google.golang.org/api/option"
@@ -15,12 +14,9 @@ var App *firebase.App
 func InitFirebase() {
 	ctx := context.Background()
 
-	serviceAccountJSON := os.Getenv("FIREBASE_SERVICE_ACCOUNT")
-	if serviceAccountJSON == "" {
-		log.Fatal("❌ FIREBASE_SERVICE_ACCOUNT environment variable is not set")
-	}
-
-	opt := option.WithCredentialsJSON([]byte(serviceAccountJSON))
+	// User requested to load from file: config/firebase-service-account.json
+	// Ensure this file exists or is handled.
+	opt := option.WithCredentialsFile("config/firebase-service-account.json")
 
 	var err error
 	App, err = firebase.NewApp(ctx, nil, opt)

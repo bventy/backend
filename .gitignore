@@ -8,3 +8,7 @@ main
 # Temporary files
 tmp/
 *.log
+
+# Firebase Credentials
+config/firebase-service-account.json
+firebase-service-account.json

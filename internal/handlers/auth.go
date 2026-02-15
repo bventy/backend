@@ -17,8 +17,8 @@ func NewAuthHandler(cfg *config.Config) *AuthHandler {
 	return &AuthHandler{Config: cfg}
 }
 
-// AuthMe handles Firebase authentication (Login/Signup in one step)
-func (h *AuthHandler) AuthMe(c *gin.Context) {
+// FirebaseLogin handles Firebase authentication (Login/Signup in one step)
+func (h *AuthHandler) FirebaseLogin(c *gin.Context) {
 	// 1. Get Firebase UID from context (set by middleware)
 	firebaseUID, exists := c.Get("firebase_uid")
 	if !exists {
@@ -39,7 +39,7 @@ func (h *AuthHandler) AuthMe(c *gin.Context) {
 	if err == nil {
 		// User exists -> Return user
 		c.JSON(http.StatusOK, gin.H{
-			"message": "User authenticated",
+			"status": "ok",
 			"user": gin.H{
 				"id":           userID,
 				"email":        dbEmail,
@@ -74,7 +74,7 @@ func (h *AuthHandler) AuthMe(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message": "User created successfully",
+		"status": "ok",
 		"user": gin.H{
 			"id":           userID,
 			"email":        emailStr,
