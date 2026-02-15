@@ -84,3 +84,56 @@ func (h *AuthHandler) FirebaseLogin(c *gin.Context) {
 		},
 	})
 }
+
+// GetMe fetches the current user's profile
+func (h *AuthHandler) GetMe(c *gin.Context) {
+	// 1. Get Firebase UID from context (set by middleware)
+	firebaseUID, exists := c.Get("firebase_uid")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	// 2. Query user details
+	var id, email, fullName, role, createdAt, dbFirebaseUID string
+	// Handle potential NULLs if necessary, but here we expect basic fields to be present
+	query := `SELECT id, email, full_name, role, created_at, firebase_uid FROM users WHERE firebase_uid = $1`
+	err := db.Pool.QueryRow(context.Background(), query, firebaseUID).Scan(&id, &email, &fullName, &role, &createdAt, &dbFirebaseUID)
+
+	if err != nil {
+		// If user not found, we could create it or return error.
+		// The prompt says: "If user does not exist: Create user automatically (email only)"
+		// But in FirebaseLogin we already create it.
+		// Let's reuse the logic or just return 404 if we want strictness,
+		// BUT prompt says: "If user does not exist: - Create user automatically"
+
+		// Fallback creation
+		emailFromToken, _ := c.Get("email")
+		emailStr, _ := emailFromToken.(string)
+		newFullName := "New User"
+
+		insertQuery := `
+			INSERT INTO users (email, firebase_uid, full_name, role)
+			VALUES ($1, $2, $3, 'user')
+			RETURNING id, created_at
+		`
+		err = db.Pool.QueryRow(context.Background(), insertQuery, emailStr, firebaseUID, newFullName).Scan(&id, &createdAt)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+			return
+		}
+
+		email = emailStr
+		fullName = newFullName
+		role = "user"
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":         id,
+		"email":      email,
+		"full_name":  fullName,
+		"role":       role,
+		"created_at": createdAt,
+		// "username": "", // Optional, currently not strictly enforced in prompt JSON but in prompt description
+	})
+}
