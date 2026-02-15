@@ -137,3 +137,50 @@ func (h *AuthHandler) GetMe(c *gin.Context) {
 		// "username": "", // Optional, currently not strictly enforced in prompt JSON but in prompt description
 	})
 }
+
+type CompleteProfileRequest struct {
+	FullName string `json:"full_name" binding:"required"`
+	Username string `json:"username" binding:"required"`
+}
+
+// CompleteProfile updates the user's profile (name, username)
+func (h *AuthHandler) CompleteProfile(c *gin.Context) {
+	// 1. Get Firebase UID from context (set by middleware)
+	firebaseUID, exists := c.Get("firebase_uid")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var req CompleteProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 2. Update user details
+	var id, email, role, createdAt string
+
+	query := `
+		UPDATE users 
+		SET full_name = $1, username = $2 
+		WHERE firebase_uid = $3 
+		RETURNING id, email, role, created_at
+	`
+
+	err := db.Pool.QueryRow(context.Background(), query, req.FullName, req.Username, firebaseUID).Scan(&id, &email, &role, &createdAt)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update profile"})
+		return
+	}
+
+	// 3. Return updated profile
+	c.JSON(http.StatusOK, gin.H{
+		"id":         id,
+		"email":      email,
+		"full_name":  req.FullName,
+		"username":   req.Username,
+		"role":       role,
+		"created_at": createdAt,
+	})
+}

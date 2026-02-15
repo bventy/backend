@@ -32,6 +32,7 @@ func RegisterRoutes(r *gin.Engine) {
 		// Auth
 		protected.POST("/auth/firebase-login", authHandler.FirebaseLogin)
 		protected.GET("/auth/me", authHandler.GetMe)
+		protected.POST("/auth/complete-profile", authHandler.CompleteProfile)
 
 		// User & Dashboard
 		protected.GET("/me", userHandler.GetMe)
