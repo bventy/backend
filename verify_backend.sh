@@ -10,7 +10,7 @@ curl -s $BASE_URL/health | jq .
 echo -e "\n\n2. Auth - Signup Vendor"
 curl -s -X POST $BASE_URL/auth/signup \
   -H "Content-Type: application/json" \
-  -d '{"email": "vendor@example.com", "password": "password123", "role": "vendor"}' | jq .
+  -d '{"email": "vendor@example.com", "password": "password123", "role": "vendor", "full_name": "Vendor Full Name"}' | jq .
 
 echo -e "\n3. Auth - Login Vendor"
 VENDOR_TOKEN=$(curl -s -X POST $BASE_URL/auth/login \
@@ -28,7 +28,7 @@ echo "Vendor ID: $VENDOR_ID"
 echo -e "\n5. Auth - Signup Admin"
 curl -s -X POST $BASE_URL/auth/signup \
   -H "Content-Type: application/json" \
-  -d '{"email": "admin@example.com", "password": "adminpassword", "role": "admin"}' | jq .
+  -d '{"email": "admin@example.com", "password": "adminpassword", "role": "admin", "full_name": "Admin Full Name"}' | jq .
 
 echo -e "\n6. Auth - Login Admin"
 ADMIN_TOKEN=$(curl -s -X POST $BASE_URL/auth/login \
