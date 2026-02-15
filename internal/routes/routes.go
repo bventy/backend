@@ -23,17 +23,14 @@ func RegisterRoutes(r *gin.Engine) {
 	r.GET("/health", handlers.HealthCheck)
 	r.GET("/vendors", vendorHandler.ListVerifiedVendors)
 	r.GET("/vendors/slug/:slug", vendorHandler.GetVendorBySlug)
-	
-	authGroup := r.Group("/auth")
-	{
-		authGroup.POST("/signup", authHandler.Signup)
-		authGroup.POST("/login", authHandler.Login)
-	}
 
-	// Protected Routes (Require Auth)
+	// Protected Routes (Require Firebase Auth)
 	protected := r.Group("/")
-	protected.Use(middleware.AuthMiddleware(cfg))
+	protected.Use(middleware.FirebaseAuthMiddleware())
 	{
+		// Auth
+		protected.POST("/auth/me", authHandler.AuthMe)
+
 		// User & Dashboard
 		protected.GET("/me", userHandler.GetMe)
 
@@ -52,13 +49,13 @@ func RegisterRoutes(r *gin.Engine) {
 
 		// Admin & Staff Routes
 		adminRoutes := protected.Group("/admin")
-		adminRoutes.Use(middleware.RequireRole("staff")) 
+		adminRoutes.Use(middleware.RequireRole("staff"))
 		{
 			// Vendor Management (Permission: vendor.verify)
 			adminRoutes.GET("/vendors/pending", middleware.RequirePermission("vendor.verify"), adminHandler.GetPendingVendors)
 			adminRoutes.POST("/vendors/:id/verify", middleware.RequirePermission("vendor.verify"), adminHandler.VerifyVendor)
 			adminRoutes.POST("/vendors/:id/reject", middleware.RequirePermission("vendor.verify"), adminHandler.RejectVendor)
-			
+
 			// User Management
 			adminRoutes.POST("/users/:id/promote-staff", middleware.RequireRole("admin"), userHandler.PromoteToStaff)
 		}

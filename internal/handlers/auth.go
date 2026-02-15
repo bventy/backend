@@ -5,10 +5,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/once-human/bventy-backend/internal/auth"
 	"github.com/once-human/bventy-backend/internal/config"
 	"github.com/once-human/bventy-backend/internal/db"
-	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthHandler struct {
@@ -19,107 +17,70 @@ func NewAuthHandler(cfg *config.Config) *AuthHandler {
 	return &AuthHandler{Config: cfg}
 }
 
-type SignupRequest struct {
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,min=6"`
-	FullName string `json:"full_name" binding:"required"`
-	Username string `json:"username"`
-	Phone    string `json:"phone"`
-}
-
-func (h *AuthHandler) Signup(c *gin.Context) {
-	var req SignupRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+// AuthMe handles Firebase authentication (Login/Signup in one step)
+func (h *AuthHandler) AuthMe(c *gin.Context) {
+	// 1. Get Firebase UID from context (set by middleware)
+	firebaseUID, exists := c.Get("firebase_uid")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+	email, _ := c.Get("email") // Optional
+	emailStr, _ := email.(string)
+
+	var userID, role, fullName string
+	var dbEmail string
+
+	// 2. Check if user exists
+	query := `SELECT id, role, full_name, email FROM users WHERE firebase_uid = $1`
+	err := db.Pool.QueryRow(context.Background(), query, firebaseUID).Scan(&userID, &role, &fullName, &dbEmail)
+
+	if err == nil {
+		// User exists -> Return user
+		c.JSON(http.StatusOK, gin.H{
+			"message": "User authenticated",
+			"user": gin.H{
+				"id":           userID,
+				"email":        dbEmail,
+				"full_name":    fullName,
+				"role":         role,
+				"firebase_uid": firebaseUID,
+			},
+		})
 		return
 	}
 
-	var userID string
-	// Handle empty username as NULL
-	var usernameArg interface{} = req.Username
-	if req.Username == "" {
-		usernameArg = nil
-	}
+	// 3. User does not exist -> Create new user
+	// Default full_name if not provided (Firebase token might not have it, or client didn't send it)
+	// We use "New User" as fallback
+	newFullName := "New User"
 
-	// role defaults to 'user' in DB
-	query := `
-		INSERT INTO users (email, password_hash, full_name, username, phone)
-		VALUES ($1, $2, $3, $4, $5)
+	insertQuery := `
+		INSERT INTO users (email, firebase_uid, full_name, role)
+		VALUES ($1, $2, $3, 'user')
 		RETURNING id
 	`
-	err = db.Pool.QueryRow(context.Background(), query, 
-		req.Email, 
-		string(hashedPassword), 
-		req.FullName, 
-		usernameArg, 
-		req.Phone,
+
+	err = db.Pool.QueryRow(context.Background(), insertQuery,
+		emailStr,
+		firebaseUID,
+		newFullName,
 	).Scan(&userID)
 
 	if err != nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "User already exists or valid constraint failed"})
-		return
-	}
-
-	token, err := auth.GenerateToken(userID, "user", h.Config)
-	if err != nil {
-		c.JSON(http.StatusCreated, gin.H{"message": "User created, please login", "user_id": userID})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
 		return
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "User created successfully",
-		"token":   token,
 		"user": gin.H{
-			"id":        userID,
-			"email":     req.Email,
-			"full_name": req.FullName,
-			"role":      "user",
+			"id":           userID,
+			"email":        emailStr,
+			"full_name":    newFullName,
+			"role":         "user",
+			"firebase_uid": firebaseUID,
 		},
-	})
-}
-
-type LoginRequest struct {
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required"`
-}
-
-func (h *AuthHandler) Login(c *gin.Context) {
-	var req LoginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	var userID, role, passwordHash, fullName string
-	query := `SELECT id, role, password_hash, full_name FROM users WHERE email = $1`
-	err := db.Pool.QueryRow(context.Background(), query, req.Email).Scan(&userID, &role, &passwordHash, &fullName)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
-		return
-	}
-
-	err = bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password))
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
-		return
-	}
-
-	token, err := auth.GenerateToken(userID, role, h.Config)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"token":     token,
-		"role":      role,
-		"user_id":   userID,
-		"full_name": fullName,
 	})
 }
