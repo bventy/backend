@@ -36,5 +36,5 @@ func main() {
 	}
 
 	log.Printf("Starting server on port %s...", port)
-	r.Run(":" + port)
+	r.Run("0.0.0.0:" + port)
 }
