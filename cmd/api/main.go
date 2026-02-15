@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/once-human/bventy-backend/internal/config"
@@ -29,6 +30,11 @@ func main() {
 	}
 
 	// Step 4: Run server
-	log.Printf("Starting server on port %s...", cfg.ServerPort)
-	r.Run(":" + cfg.ServerPort)
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8082"
+	}
+
+	log.Printf("Starting server on port %s...", port)
+	r.Run(":" + port)
 }
