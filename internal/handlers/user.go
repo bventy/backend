@@ -182,7 +182,7 @@ func (h *UserHandler) UpdateMe(c *gin.Context) {
 
 	query := `
 		UPDATE users 
-		SET full_name = $2, username = $3, phone = $4, city = $5, bio = $6, profile_image_url = $7, updated_at = NOW()
+		SET full_name = $2, username = $3, phone = $4, city = $5, bio = $6, profile_image_url = $7
 		WHERE id = $1
 		RETURNING id, email, full_name, username, role
 	`
