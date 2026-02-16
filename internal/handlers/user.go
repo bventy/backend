@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -153,10 +154,30 @@ func (h *UserHandler) UpdateMe(c *gin.Context) {
 	}
 
 	// 2. Prepare Update Data
-	// Convert empty username to nil for DB to avoid unique constraint violation on empty strings
+	// Convert empty strings to nil for DB to avoid unique constraint violations or bad data
 	var usernameArg interface{} = req.Username
 	if req.Username == "" {
 		usernameArg = nil
+	}
+
+	var phoneArg interface{} = req.Phone
+	if req.Phone == "" {
+		phoneArg = nil
+	}
+
+	var cityArg interface{} = req.City
+	if req.City == "" {
+		cityArg = nil
+	}
+
+	var bioArg interface{} = req.Bio
+	if req.Bio == "" {
+		bioArg = nil
+	}
+
+	var imageArg interface{} = req.ProfileImageURL
+	if req.ProfileImageURL == "" {
+		imageArg = nil
 	}
 
 	query := `
@@ -173,15 +194,15 @@ func (h *UserHandler) UpdateMe(c *gin.Context) {
 		userID,
 		req.FullName,
 		usernameArg,
-		req.Phone,
-		req.City,
-		req.Bio,
-		req.ProfileImageURL,
+		phoneArg,
+		cityArg,
+		bioArg,
+		imageArg,
 	).Scan(&id, &email, &fullName, &username, &role)
 
 	if err != nil {
-		// Fallback error logging
-		// log.Println("Update error:", err)
+		// Log the actual error for debugging
+		fmt.Printf("❌ Profile Update Error: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update profile"})
 		return
 	}
