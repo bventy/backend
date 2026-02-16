@@ -64,12 +64,10 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 	}
 
 	// Fetch user details
-	var email, role, fullName, username string
-	// Check if username is NULL in DB (it is optional), need to handle potential NULL in scan.
-	// Actually `username` is text nullable. `Scan` to *string works if value is not null.
-	// If it is null, we need NullString or *string.
-	// Let's use simple logic: COALESCE(username, '')
-	query := `SELECT email, role, full_name, COALESCE(username, '') FROM users WHERE id=$1`
+	var email, role, fullName string
+	var username *string // Use pointer for nullable string
+
+	query := `SELECT email, role, full_name, username FROM users WHERE id=$1`
 	err := db.Pool.QueryRow(context.Background(), query, userID).Scan(&email, &role, &fullName, &username)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
@@ -103,9 +101,10 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
+		"id":                    userID, // Added ID to response as it's useful
 		"email":                 email,
 		"full_name":             fullName,
-		"username":              username,
+		"username":              username, // Returns string or null
 		"role":                  role,
 		"vendor_profile_exists": vendorExists,
 		"groups":                groups,
@@ -134,25 +133,31 @@ func (h *UserHandler) UpdateMe(c *gin.Context) {
 		return
 	}
 
-	// Update query
-	// We use COALESCE to keep existing values if empty string provided?
-	// Or should we allow clearing fields?
-	// Usually PUT replaces, PATCH partial updates.
-	// Since we are doing "Update Profile", often users send everything or we want partial.
-	// Let's assume partial update for fields provided, but standard SQL updates overwrite.
-	// To make it robust for "Update Profile" form which might send all fields:
-	// We will simply update all fields provided. If front-end sends empty string, it clears it.
-	// IF the user wants partial update logic (PATCH), we'd need dynamic query.
-	// For MVP, let's just update all these fields.
-	// BUT, if front-end sends only "full_name", other fields shouldn't be wiped if they are strictly struct fields.
-	// `ShouldBindJSON` leaves missing fields as zero values ("").
-	// So if we update everything, we might wipe data.
-	// Better approach: Dynamic update or COALESCE in SQL with NULL check?
-	// But Go struct "" is not NULL.
-	// Let's stick to a simple strategy: Update all columns. Frontend should send current state + changes.
-	// OR better: use dynamic query construction to only update non-empty fields?
-	// Re-reading user request: "PUT /me ... correct backend endpoint".
-	// Let's do a robust update that updates all specified profile fields.
+	// 1. Explicit Uniqueness Check (as requested)
+	// Only check if username is provided/non-empty, assuming we allow setting it to NULL (empty) without uniqueness check
+	// EXCEPT if we treat empty as NULL, we don't need to check uniqueness for empty/NULL (Postgres unique allows multiple nulls).
+	// So we only check if req.Username != ""
+
+	if req.Username != "" {
+		var count int
+		checkQuery := `SELECT count(*) FROM users WHERE username = $1 AND id != $2`
+		err := db.Pool.QueryRow(context.Background(), checkQuery, req.Username, userID).Scan(&count)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to validate username"})
+			return
+		}
+		if count > 0 {
+			c.JSON(http.StatusConflict, gin.H{"error": "Username is already taken"})
+			return
+		}
+	}
+
+	// 2. Prepare Update Data
+	// Convert empty username to nil for DB to avoid unique constraint violation on empty strings
+	var usernameArg interface{} = req.Username
+	if req.Username == "" {
+		usernameArg = nil
+	}
 
 	query := `
 		UPDATE users 
@@ -161,20 +166,13 @@ func (h *UserHandler) UpdateMe(c *gin.Context) {
 		RETURNING id, email, full_name, username, role
 	`
 
-	// Handle username uniqueness error
-	var id, email, fullName, username, role string
-	// We need to handle potential NULLs for scanning if we return them?
-	// If fields are text in DB, they can be null.
-	// But our struct has strings.
-	// Let's ensure we pass valid values.
-
-	// Wait, if I overwrite with "", checking if existing is correct...
-	// If I put "", it becomes empty string in DB, not NULL (for text fields). That's fine.
+	var id, email, fullName, role string
+	var username *string // Scan into pointer for potential NULL
 
 	err := db.Pool.QueryRow(context.Background(), query,
 		userID,
 		req.FullName,
-		req.Username,
+		usernameArg,
 		req.Phone,
 		req.City,
 		req.Bio,
@@ -182,12 +180,9 @@ func (h *UserHandler) UpdateMe(c *gin.Context) {
 	).Scan(&id, &email, &fullName, &username, &role)
 
 	if err != nil {
-		// Check for unique constraint violation (username)
-		// pgx error checks are verbose, simple string check for MVP
-		if err.Error() != "" { // TODO: Check specific error code 23505 if needed
-			// log.Println("Update error:", err)
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update profile. Username might be taken."})
+		// Fallback error logging
+		// log.Println("Update error:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update profile"})
 		return
 	}
 
