@@ -9,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/once-human/bventy-backend/internal/config"
 	"github.com/once-human/bventy-backend/internal/db"
-	firebaseApp "github.com/once-human/bventy-backend/internal/firebase"
 	"github.com/once-human/bventy-backend/internal/routes"
 )
 
@@ -20,9 +19,6 @@ func main() {
 
 	// Step 1: Connect DB
 	db.Connect(cfg)
-
-	// Step 1.5: Initialize Firebase
-	firebaseApp.InitFirebase()
 
 	// Step 2: Start Gin server
 	r := gin.Default()
