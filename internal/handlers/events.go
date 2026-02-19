@@ -72,9 +72,9 @@ func (h *EventHandler) CreateEvent(c *gin.Context) {
 		}
 	}
 
-	// Updated query to include cover_image_url and CORRECT column name event_date
+	// Updated query to include cover_image_url and CORRECT column name date
 	query := `
-		INSERT INTO events (title, city, event_type, event_date, budget_min, budget_max, organizer_user_id, organizer_group_id, cover_image_url)
+		INSERT INTO events (title, city, event_type, date, budget_min, budget_max, organizer_user_id, organizer_group_id, cover_image_url)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id
 	`
@@ -101,7 +101,7 @@ func (h *EventHandler) ListMyEvents(c *gin.Context) {
 
 	// Logic: Events where I am the organizer_user_id OR organizer_group_id matches a group I am a member of.
 	query := `
-		SELECT e.id, e.title, e.city, e.event_date, e.event_type, e.budget_min, e.budget_max, e.cover_image_url
+		SELECT e.id, e.title, e.city, e.date, e.event_type, e.budget_min, e.budget_max, e.cover_image_url
 		FROM events e
 		LEFT JOIN group_members gm ON e.organizer_group_id = gm.group_id AND gm.user_id = $1
 		WHERE e.organizer_user_id = $1 OR gm.user_id IS NOT NULL
@@ -143,8 +143,9 @@ func (h *EventHandler) ListMyEvents(c *gin.Context) {
 func (h *EventHandler) GetEventById(c *gin.Context) {
 	eventID := c.Param("id")
 
+	// GetEventById
 	query := `
-		SELECT id, title, city, event_date, event_type, budget_min, budget_max, cover_image_url, organizer_user_id, organizer_group_id
+		SELECT id, title, city, date, event_type, budget_min, budget_max, cover_image_url, organizer_user_id, organizer_group_id
 		FROM events
 		WHERE id = $1
 	`
