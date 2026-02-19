@@ -1,10 +1,10 @@
 package routes
 
 import (
-	"github.com/gin-gonic/gin"
 	"github.com/bventy/backend/internal/config"
 	"github.com/bventy/backend/internal/handlers"
 	"github.com/bventy/backend/internal/middleware"
+	"github.com/gin-gonic/gin"
 )
 
 func RegisterRoutes(r *gin.Engine) {
@@ -15,7 +15,7 @@ func RegisterRoutes(r *gin.Engine) {
 	authHandler := handlers.NewAuthHandler(cfg)
 	vendorHandler := handlers.NewVendorHandler()
 	adminHandler := handlers.NewAdminHandler()
-	userHandler := handlers.NewUserHandler()
+	userHandler := handlers.NewUserHandler(cfg)
 	groupHandler := handlers.NewGroupHandler()
 	eventHandler := handlers.NewEventHandler()
 	mediaHandler := handlers.NewMediaHandler(cfg)
@@ -46,8 +46,10 @@ func RegisterRoutes(r *gin.Engine) {
 		// Media
 		protected.POST("/media/upload", mediaHandler.Upload)
 
-		// Vendor Onboarding
+		// Vendor Onboarding & Management
 		protected.POST("/vendor/onboard", vendorHandler.OnboardVendor)
+		protected.PUT("/vendor/me", vendorHandler.UpdateVendor)
+		protected.GET("/vendor/me", vendorHandler.GetMyVendorProfile)
 
 		// Groups
 		protected.POST("/groups", groupHandler.CreateGroup)
