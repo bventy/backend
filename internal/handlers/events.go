@@ -17,14 +17,14 @@ func NewEventHandler() *EventHandler {
 }
 
 type CreateEventRequest struct {
-	Title            string   `json:"title" binding:"required"`
-	City             string   `json:"city" binding:"required"`
-	EventType        string   `json:"event_type"`
-	Date             string   `json:"event_date" binding:"required"` // ISO string
-	BudgetMin        *float64 `json:"budget_min"`
-	BudgetMax        *float64 `json:"budget_max"`
-	OrganizerGroupID *string  `json:"organizer_group_id"` // Optional
-	CoverImageURL    *string  `json:"cover_image_url"`    // Optional
+	Title            string  `json:"title" binding:"required"`
+	City             string  `json:"city" binding:"required"`
+	EventType        string  `json:"event_type"`
+	Date             string  `json:"event_date" binding:"required"` // ISO string
+	BudgetMin        *int    `json:"budget_min"`
+	BudgetMax        *int    `json:"budget_max"`
+	OrganizerGroupID *string `json:"organizer_group_id"` // Optional
+	CoverImageURL    *string `json:"cover_image_url"`    // Optional
 }
 
 func (h *EventHandler) CreateEvent(c *gin.Context) {
@@ -72,16 +72,9 @@ func (h *EventHandler) CreateEvent(c *gin.Context) {
 		}
 	}
 
-	// Updated query to include cover_image_url
-	// Assuming the column 'cover_image_url' exists in the table or needs to be added.
-	// Given the user says "failed to load resource 500", it likely means either the column exists and is NOT NULL (unlikely for image)
-	// OR the frontend sends it and expects it to be saved.
-	// I will include it. If the column doesn't exist, this will error 500 too (column does not exist).
-	// But since I don't have schema verification, I have to assume V8 schema has it.
-	// If it fails with "column cover_image_url does not exist", I will add it.
-
+	// Updated query to include cover_image_url and CORRECT column name event_date
 	query := `
-		INSERT INTO events (title, city, event_type, date, budget_min, budget_max, organizer_user_id, organizer_group_id, cover_image_url)
+		INSERT INTO events (title, city, event_type, event_date, budget_min, budget_max, organizer_user_id, organizer_group_id, cover_image_url)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id
 	`
