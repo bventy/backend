@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
 	"github.com/bventy/backend/internal/db"
+	"github.com/gin-gonic/gin"
 )
 
 type UserHandler struct{}
@@ -66,10 +66,10 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 
 	// Fetch user details
 	var email, role, fullName string
-	var username *string // Use pointer for nullable string
+	var username, profileImageURL *string // Use pointer for nullable string
 
-	query := `SELECT email, role, full_name, username FROM users WHERE id=$1`
-	err := db.Pool.QueryRow(context.Background(), query, userID).Scan(&email, &role, &fullName, &username)
+	query := `SELECT email, role, full_name, username, profile_image_url FROM users WHERE id=$1`
+	err := db.Pool.QueryRow(context.Background(), query, userID).Scan(&email, &role, &fullName, &username, &profileImageURL)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
@@ -105,7 +105,8 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 		"id":                    userID, // Added ID to response as it's useful
 		"email":                 email,
 		"full_name":             fullName,
-		"username":              username, // Returns string or null
+		"username":              username,        // Returns string or null
+		"profile_image_url":     profileImageURL, // Returns string or null
 		"role":                  role,
 		"vendor_profile_exists": vendorExists,
 		"groups":                groups,
