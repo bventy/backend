@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/once-human/bventy-backend/internal/config"
+	"github.com/bventy/backend/internal/config"
 )
 
 type Claims struct {

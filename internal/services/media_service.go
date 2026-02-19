@@ -11,7 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
-	internalConfig "github.com/once-human/bventy-backend/internal/config"
+	internalConfig "github.com/bventy/backend/internal/config"
 )
 
 type MediaService struct {

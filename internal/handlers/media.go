@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/once-human/bventy-backend/internal/config"
-	"github.com/once-human/bventy-backend/internal/services"
+	"github.com/bventy/backend/internal/config"
+	"github.com/bventy/backend/internal/services"
 )
 
 type MediaHandler struct {

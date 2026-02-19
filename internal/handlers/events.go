@@ -7,7 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
-	"github.com/once-human/bventy-backend/internal/db"
+	"github.com/bventy/backend/internal/db"
 )
 
 type EventHandler struct{}

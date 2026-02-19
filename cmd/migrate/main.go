@@ -6,8 +6,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/once-human/bventy-backend/internal/config"
-	"github.com/once-human/bventy-backend/internal/db"
+	"github.com/bventy/backend/internal/config"
+	"github.com/bventy/backend/internal/db"
 )
 
 func main() {

@@ -1,4 +1,4 @@
-module github.com/once-human/bventy-backend
+module github.com/bventy/backend
 
 go 1.25
 

@@ -7,7 +7,7 @@ import (
 	"net/url"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/once-human/bventy-backend/internal/config"
+	"github.com/bventy/backend/internal/config"
 )
 
 var Pool *pgxpool.Pool

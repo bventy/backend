@@ -5,9 +5,9 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/once-human/bventy-backend/internal/auth"
-	"github.com/once-human/bventy-backend/internal/config"
-	"github.com/once-human/bventy-backend/internal/db"
+	"github.com/bventy/backend/internal/auth"
+	"github.com/bventy/backend/internal/config"
+	"github.com/bventy/backend/internal/db"
 	"golang.org/x/crypto/bcrypt"
 )
 

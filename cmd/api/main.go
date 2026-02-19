@@ -7,9 +7,9 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/once-human/bventy-backend/internal/config"
-	"github.com/once-human/bventy-backend/internal/db"
-	"github.com/once-human/bventy-backend/internal/routes"
+	"github.com/bventy/backend/internal/config"
+	"github.com/bventy/backend/internal/db"
+	"github.com/bventy/backend/internal/routes"
 )
 
 func main() {
