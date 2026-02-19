@@ -101,7 +101,7 @@ func (h *EventHandler) ListMyEvents(c *gin.Context) {
 
 	// Logic: Events where I am the organizer_user_id OR organizer_group_id matches a group I am a member of.
 	query := `
-		SELECT e.id, e.title, e.city, e.date, e.event_type
+		SELECT e.id, e.title, e.city, e.event_date, e.event_type
 		FROM events e
 		LEFT JOIN group_members gm ON e.organizer_group_id = gm.group_id AND gm.user_id = $1
 		WHERE e.organizer_user_id = $1 OR gm.user_id IS NOT NULL
