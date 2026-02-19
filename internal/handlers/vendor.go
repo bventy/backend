@@ -69,6 +69,52 @@ func (h *VendorHandler) OnboardVendor(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"message": "Vendor profile created successfully", "vendor_id": vendorID, "slug": slug})
 }
 
+func (h *VendorHandler) GetMyProfile(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	// Use COALESCE for nullable text fields to avoid Scan errors
+	// Use 'status' column instead of non-existent 'verified' column
+	query := `
+		SELECT business_name, slug, category, city, COALESCE(bio, ''), whatsapp_link, portfolio_image_url, gallery_images, portfolio_files, status
+		FROM vendor_profiles 
+		WHERE owner_user_id = $1
+	`
+
+	var name, slug, category, city, bio, whatsappLink, status string
+	var portfolioImageURL *string
+	var galleryImages []string
+	var portfolioFiles []interface{}
+
+	err := db.Pool.QueryRow(context.Background(), query, userID).Scan(
+		&name, &slug, &category, &city, &bio, &whatsappLink,
+		&portfolioImageURL, &galleryImages, &portfolioFiles, &status,
+	)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Vendor profile not found"})
+		return
+	}
+
+	// Map status to verified boolean
+	verified := (status == "verified")
+
+	c.JSON(http.StatusOK, gin.H{
+		"business_name":       name,
+		"slug":                slug,
+		"category":            category,
+		"city":                city,
+		"bio":                 bio,
+		"whatsapp_link":       whatsappLink,
+		"portfolio_image_url": portfolioImageURL,
+		"gallery_images":      galleryImages,
+		"portfolio_files":     portfolioFiles,
+		"verified":            verified,
+	})
+}
+
 func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 	query := `
 		SELECT business_name, slug, category, city, bio, whatsapp_link, portfolio_image_url 

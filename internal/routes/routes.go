@@ -51,6 +51,7 @@ func RegisterRoutes(r *gin.Engine) {
 
 		// Vendor Onboarding & Management
 		protected.POST("/vendor/onboard", vendorHandler.OnboardVendor)
+		protected.GET("/vendor/me", vendorHandler.GetMyProfile)
 		protected.PUT("/vendor/me", vendorHandler.UpdateVendor)
 
 		// Vendor Gallery & Portfolio
