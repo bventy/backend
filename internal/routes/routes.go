@@ -18,11 +18,16 @@ func RegisterRoutes(r *gin.Engine) {
 	userHandler := handlers.NewUserHandler()
 	groupHandler := handlers.NewGroupHandler()
 	eventHandler := handlers.NewEventHandler()
+	mediaHandler := handlers.NewMediaHandler(cfg)
 
 	// Public Routes
 	r.GET("/health", handlers.HealthCheck)
 	r.GET("/vendors", vendorHandler.ListVerifiedVendors)
 	r.GET("/vendors/slug/:slug", vendorHandler.GetVendorBySlug)
+
+	// Media Upload (Protected? or Public? usually protected)
+	// User didn't specify, but let's make it protected to prevent abuse.
+	// Actually, having it public is dangerous. I'll put it in Protected.
 
 	authGroup := r.Group("/auth")
 	{
@@ -37,6 +42,9 @@ func RegisterRoutes(r *gin.Engine) {
 		// User & Dashboard
 		protected.GET("/me", userHandler.GetMe)
 		protected.PUT("/me", userHandler.UpdateMe)
+
+		// Media
+		protected.POST("/media/upload", mediaHandler.Upload)
 
 		// Vendor Onboarding
 		protected.POST("/vendor/onboard", vendorHandler.OnboardVendor)
