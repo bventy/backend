@@ -66,6 +66,7 @@ func RegisterRoutes(r *gin.Engine) {
 		// Events
 		protected.POST("/events", eventHandler.CreateEvent)
 		protected.GET("/events", eventHandler.ListMyEvents)
+		protected.GET("/events/:id", eventHandler.GetEventById)
 		protected.POST("/events/:id/shortlist/:vendorID", eventHandler.ShortlistVendor)
 		protected.GET("/events/:id/shortlist", eventHandler.GetShortlistedVendors)
 
