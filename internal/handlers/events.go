@@ -72,7 +72,7 @@ func (h *EventHandler) CreateEvent(c *gin.Context) {
 		}
 	}
 
-	// Updated query to include cover_image_url and CORRECT column name date
+	// Updated query to include cover_image_url and CORRECT column name date (matches 001_init.sql)
 	query := `
 		INSERT INTO events (title, city, event_type, date, budget_min, budget_max, organizer_user_id, organizer_group_id, cover_image_url)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -100,8 +100,9 @@ func (h *EventHandler) ListMyEvents(c *gin.Context) {
 	}
 
 	// Logic: Events where I am the organizer_user_id OR organizer_group_id matches a group I am a member of.
+	// Fixed: Use 'date' instead of 'event_date'
 	query := `
-		SELECT e.id, e.title, e.city, e.date, e.event_type, e.budget_min, e.budget_max, e.cover_image_url
+		SELECT e.id, e.title, e.city, e.date, COALESCE(e.event_type, ''), e.budget_min, e.budget_max, e.cover_image_url
 		FROM events e
 		LEFT JOIN group_members gm ON e.organizer_group_id = gm.group_id AND gm.user_id = $1
 		WHERE e.organizer_user_id = $1 OR gm.user_id IS NOT NULL
@@ -109,7 +110,7 @@ func (h *EventHandler) ListMyEvents(c *gin.Context) {
 
 	rows, err := db.Pool.Query(context.Background(), query, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch events"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch events: " + err.Error()})
 		return
 	}
 	defer rows.Close()
@@ -128,7 +129,7 @@ func (h *EventHandler) ListMyEvents(c *gin.Context) {
 			"id":              id,
 			"title":           title,
 			"city":            city,
-			"date":            date.Format("2006-01-02"), // Frontend expects 'date' or mapping? Frontend likely expects 'event_date' or 'date'. I'll keep date for now but logic below might need update.
+			"date":            date.Format("2006-01-02"),
 			"event_date":      date.Format("2006-01-02"), // duplicated for safety
 			"event_type":      eventType,
 			"budget_min":      budgetMin,
@@ -143,9 +144,10 @@ func (h *EventHandler) ListMyEvents(c *gin.Context) {
 func (h *EventHandler) GetEventById(c *gin.Context) {
 	eventID := c.Param("id")
 
-	// GetEventById
+	// Fixed column name: 'date' instead of 'event_date' (matches 001_init.sql)
+	// Handle nullable event_type with COALESCE
 	query := `
-		SELECT id, title, city, date, event_type, budget_min, budget_max, cover_image_url, organizer_user_id, organizer_group_id
+		SELECT id, title, city, date, COALESCE(event_type, ''), budget_min, budget_max, cover_image_url, organizer_user_id, organizer_group_id
 		FROM events
 		WHERE id = $1
 	`
@@ -165,7 +167,7 @@ func (h *EventHandler) GetEventById(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error: " + err.Error()})
 		return
 	}
 
