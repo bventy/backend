@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/once-human/bventy-backend/internal/db"
+	"github.com/bventy/backend/internal/db"
 )
 
 type AdminHandler struct{}

@@ -2,9 +2,9 @@ package routes
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/once-human/bventy-backend/internal/config"
-	"github.com/once-human/bventy-backend/internal/handlers"
-	"github.com/once-human/bventy-backend/internal/middleware"
+	"github.com/bventy/backend/internal/config"
+	"github.com/bventy/backend/internal/handlers"
+	"github.com/bventy/backend/internal/middleware"
 )
 
 func RegisterRoutes(r *gin.Engine) {
