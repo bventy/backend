@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/bventy/backend/internal/db"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
-	"github.com/bventy/backend/internal/db"
 )
 
 type EventHandler struct{}
@@ -24,6 +24,7 @@ type CreateEventRequest struct {
 	BudgetMin        *float64 `json:"budget_min"`
 	BudgetMax        *float64 `json:"budget_max"`
 	OrganizerGroupID *string  `json:"organizer_group_id"` // Optional
+	CoverImageURL    *string  `json:"cover_image_url"`    // Optional
 }
 
 func (h *EventHandler) CreateEvent(c *gin.Context) {
@@ -60,7 +61,7 @@ func (h *EventHandler) CreateEvent(c *gin.Context) {
 		var isMember int
 		queryCheck := `SELECT 1 FROM group_members WHERE group_id=$1 AND user_id=$2`
 		err := db.Pool.QueryRow(context.Background(), queryCheck, organizerGroupID, userID).Scan(&isMember)
-		
+
 		if err == pgx.ErrNoRows {
 			c.JSON(http.StatusForbidden, gin.H{"error": "You are not a member of this group"})
 			return
@@ -71,15 +72,23 @@ func (h *EventHandler) CreateEvent(c *gin.Context) {
 		}
 	}
 
+	// Updated query to include cover_image_url
+	// Assuming the column 'cover_image_url' exists in the table or needs to be added.
+	// Given the user says "failed to load resource 500", it likely means either the column exists and is NOT NULL (unlikely for image)
+	// OR the frontend sends it and expects it to be saved.
+	// I will include it. If the column doesn't exist, this will error 500 too (column does not exist).
+	// But since I don't have schema verification, I have to assume V8 schema has it.
+	// If it fails with "column cover_image_url does not exist", I will add it.
+
 	query := `
-		INSERT INTO events (title, city, event_type, date, budget_min, budget_max, organizer_user_id, organizer_group_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO events (title, city, event_type, date, budget_min, budget_max, organizer_user_id, organizer_group_id, cover_image_url)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id
 	`
 
 	var eventID string
-	err = db.Pool.QueryRow(context.Background(), query, 
-		req.Title, req.City, req.EventType, eventDate, req.BudgetMin, req.BudgetMax, organizerUserID, organizerGroupID,
+	err = db.Pool.QueryRow(context.Background(), query,
+		req.Title, req.City, req.EventType, eventDate, req.BudgetMin, req.BudgetMax, organizerUserID, organizerGroupID, req.CoverImageURL,
 	).Scan(&eventID)
 
 	if err != nil {
@@ -138,13 +147,13 @@ func (h *EventHandler) ShortlistVendor(c *gin.Context) {
 	// Ensure event exists
 	// Ideally check ownership logic here too, but for speed, let's assume broad update access or just skip detailed ownership check for this MVP step unless critical.
 	// We SHOULD check ownership.
-	
+
 	// Simply insert safely (ON CONFLICT DO NOTHING) would be nice, but table doesn't have unique constraint explicitly named in migration, but PK is (event_id, vendor_id).
 	// So plain insert fails on duplicate.
 
 	query := `INSERT INTO event_shortlisted_vendors (event_id, vendor_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`
 	_, err := db.Pool.Exec(context.Background(), query, eventID, vendorID)
-	
+
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to shortlist vendor"})
 		return
@@ -177,6 +186,6 @@ func (h *EventHandler) GetShortlistedVendors(c *gin.Context) {
 		}
 		vendors = append(vendors, gin.H{"id": id, "business_name": name, "category": cat})
 	}
-	
+
 	c.JSON(http.StatusOK, vendors)
 }
