@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"github.com/bventy/backend/internal/config"
 	"github.com/bventy/backend/internal/services"
+	"github.com/gin-gonic/gin"
 )
 
 type MediaHandler struct {
@@ -45,7 +45,7 @@ func (h *MediaHandler) Upload(c *gin.Context) {
 	}
 
 	// Upload
-	url, err := h.Service.UploadFile(file, header.Filename, header.Header.Get("Content-Type"))
+	url, err := h.Service.UploadFile(file, header.Filename, header.Header.Get("Content-Type"), "uploads")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload file"})
 		return

@@ -13,7 +13,7 @@ func RegisterRoutes(r *gin.Engine) {
 
 	// Handlers
 	authHandler := handlers.NewAuthHandler(cfg)
-	vendorHandler := handlers.NewVendorHandler()
+	vendorHandler := handlers.NewVendorHandler(cfg)
 	adminHandler := handlers.NewAdminHandler()
 	userHandler := handlers.NewUserHandler(cfg)
 	groupHandler := handlers.NewGroupHandler()
@@ -43,13 +43,21 @@ func RegisterRoutes(r *gin.Engine) {
 		protected.GET("/me", userHandler.GetMe)
 		protected.PUT("/me", userHandler.UpdateMe)
 
+		// Profile Image
+		protected.POST("/users/profile-image", userHandler.UploadProfileImage)
+
 		// Media
 		protected.POST("/media/upload", mediaHandler.Upload)
 
 		// Vendor Onboarding & Management
 		protected.POST("/vendor/onboard", vendorHandler.OnboardVendor)
 		protected.PUT("/vendor/me", vendorHandler.UpdateVendor)
-		protected.GET("/vendor/me", vendorHandler.GetMyVendorProfile)
+
+		// Vendor Gallery & Portfolio
+		protected.POST("/vendors/:id/gallery", vendorHandler.UploadGalleryImage)
+		protected.DELETE("/vendors/:id/gallery/:imageID", vendorHandler.DeleteGalleryImage)
+		protected.POST("/vendors/:id/portfolio", vendorHandler.UploadPortfolioFile)
+		protected.DELETE("/vendors/:id/portfolio/:fileID", vendorHandler.DeletePortfolioFile)
 
 		// Groups
 		protected.POST("/groups", groupHandler.CreateGroup)

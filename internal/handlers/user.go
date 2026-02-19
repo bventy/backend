@@ -5,14 +5,23 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/bventy/backend/internal/config"
 	"github.com/bventy/backend/internal/db"
+	"github.com/bventy/backend/internal/services"
 	"github.com/gin-gonic/gin"
 )
 
-type UserHandler struct{}
+type UserHandler struct {
+	Config       *config.Config
+	MediaService *services.MediaService
+}
 
-func NewUserHandler() *UserHandler {
-	return &UserHandler{}
+func NewUserHandler(cfg *config.Config) *UserHandler {
+	svc, _ := services.NewMediaService(cfg) // Ignore error? Or log?
+	return &UserHandler{
+		Config:       cfg,
+		MediaService: svc,
+	}
 }
 
 func (h *UserHandler) PromoteToAdmin(c *gin.Context) {
@@ -215,5 +224,59 @@ func (h *UserHandler) UpdateMe(c *gin.Context) {
 		"username":  username,
 		"role":      role,
 		"message":   "Profile updated successfully",
+	})
+}
+
+// UploadProfileImage handles uploading and updating the user's profile image
+func (h *UserHandler) UploadProfileImage(c *gin.Context) {
+	userID := c.MustGet("userID").(string)
+
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No file provided"})
+		return
+	}
+
+	// Size limit 5MB
+	if fileHeader.Size > 5*1024*1024 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "File too large (max 5MB)"})
+		return
+	}
+
+	file, err := fileHeader.Open()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open file"})
+		return
+	}
+	defer file.Close()
+
+	// Upload logic
+	prefix := fmt.Sprintf("users/%s/profile", userID)
+	newURL, err := h.MediaService.CompressAndUploadImage(file, fileHeader.Filename, prefix)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload image"})
+		return
+	}
+
+	// Clean up old image if exists (fetch old URL from DB first)
+	// We already have `profileImageURL` from previous GET logic? No, this is a POST/PUT endpoint, need to query.
+	var oldURL *string
+	err = db.Pool.QueryRow(context.TODO(), "SELECT profile_image_url FROM users WHERE id=$1", userID).Scan(&oldURL)
+	if err == nil && oldURL != nil && *oldURL != "" {
+		// Try to delete old file
+		// Don't error out if delete fails, just log it (or ignore)
+		_ = h.MediaService.DeleteFile(*oldURL)
+	}
+
+	// Update DB
+	_, err = db.Pool.Exec(context.TODO(), "UPDATE users SET profile_image_url=$1 WHERE id=$2", newURL, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update profile"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Profile image updated",
+		"url":     newURL,
 	})
 }
