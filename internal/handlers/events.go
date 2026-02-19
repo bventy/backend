@@ -7,7 +7,7 @@ import (
 
 	"github.com/bventy/backend/internal/db"
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5"
+	pgx "github.com/jackc/pgx/v5"
 )
 
 type EventHandler struct{}
@@ -101,7 +101,7 @@ func (h *EventHandler) ListMyEvents(c *gin.Context) {
 
 	// Logic: Events where I am the organizer_user_id OR organizer_group_id matches a group I am a member of.
 	query := `
-		SELECT e.id, e.title, e.city, e.event_date, e.event_type
+		SELECT e.id, e.title, e.city, e.event_date, e.event_type, e.budget_min, e.budget_max, e.cover_image_url
 		FROM events e
 		LEFT JOIN group_members gm ON e.organizer_group_id = gm.group_id AND gm.user_id = $1
 		WHERE e.organizer_user_id = $1 OR gm.user_id IS NOT NULL
@@ -118,19 +118,70 @@ func (h *EventHandler) ListMyEvents(c *gin.Context) {
 	for rows.Next() {
 		var id, title, city, eventType string
 		var date time.Time
-		if err := rows.Scan(&id, &title, &city, &date, &eventType); err != nil {
+		var budgetMin, budgetMax *int
+		var coverImageURL *string
+
+		if err := rows.Scan(&id, &title, &city, &date, &eventType, &budgetMin, &budgetMax, &coverImageURL); err != nil {
 			continue
 		}
 		events = append(events, gin.H{
-			"id":         id,
-			"title":      title,
-			"city":       city,
-			"date":       date.Format("2006-01-02"),
-			"event_type": eventType,
+			"id":              id,
+			"title":           title,
+			"city":            city,
+			"date":            date.Format("2006-01-02"), // Frontend expects 'date' or mapping? Frontend likely expects 'event_date' or 'date'. I'll keep date for now but logic below might need update.
+			"event_date":      date.Format("2006-01-02"), // duplicated for safety
+			"event_type":      eventType,
+			"budget_min":      budgetMin,
+			"budget_max":      budgetMax,
+			"cover_image_url": coverImageURL,
 		})
 	}
 
 	c.JSON(http.StatusOK, events)
+}
+
+func (h *EventHandler) GetEventById(c *gin.Context) {
+	eventID := c.Param("id")
+
+	query := `
+		SELECT id, title, city, event_date, event_type, budget_min, budget_max, cover_image_url, organizer_user_id, organizer_group_id
+		FROM events
+		WHERE id = $1
+	`
+
+	var event gin.H
+	var id, title, city, eventType string
+	var date time.Time
+	var budgetMin, budgetMax *int
+	var coverImageURL, organizerUserID, organizerGroupID *string
+
+	err := db.Pool.QueryRow(context.Background(), query, eventID).Scan(
+		&id, &title, &city, &date, &eventType, &budgetMin, &budgetMax, &coverImageURL, &organizerUserID, &organizerGroupID,
+	)
+
+	if err == pgx.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Event not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		return
+	}
+
+	event = gin.H{
+		"id":                 id,
+		"title":              title,
+		"city":               city,
+		"event_date":         date.Format("2006-01-02"),
+		"event_type":         eventType,
+		"budget_min":         budgetMin,
+		"budget_max":         budgetMax,
+		"cover_image_url":    coverImageURL,
+		"organizer_user_id":  organizerUserID,
+		"organizer_group_id": organizerGroupID,
+	}
+
+	c.JSON(http.StatusOK, event)
 }
 
 func (h *EventHandler) ShortlistVendor(c *gin.Context) {
