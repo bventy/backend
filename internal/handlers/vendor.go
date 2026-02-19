@@ -48,29 +48,24 @@ func (h *VendorHandler) OnboardVendor(c *gin.Context) {
 
 	slug := generateSlug(req.BusinessName, req.City)
 
-	// Insert into vendor_profiles (Neon Schema)
-	// Columns: user_id, display_name, city, bio, primary_profile_image_url
-	// Note: Missing slug, category, whatsapp_link, status in Neon schema.
-	// We will insert what we can.
+	// Insert into vendor_profiles
 	query := `
-		INSERT INTO vendor_profiles (user_id, display_name, city, bio)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO vendor_profiles (owner_user_id, business_name, slug, category, city, bio, whatsapp_link, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
 		RETURNING id
 	`
 
 	var vendorID string
-	// WhatsappLink and Category are lost in DB insert if columns don't exist.
-	err := db.Pool.QueryRow(context.Background(), query, userID, req.BusinessName, req.City, req.Bio).Scan(&vendorID)
+	err := db.Pool.QueryRow(context.Background(), query, userID, req.BusinessName, slug, req.Category, req.City, req.Bio, req.WhatsappLink).Scan(&vendorID)
 	if err != nil {
 		if strings.Contains(err.Error(), "unique constraint") {
-			c.JSON(http.StatusConflict, gin.H{"error": "Vendor profile already exists for this user"})
+			c.JSON(http.StatusConflict, gin.H{"error": "Vendor profile already exists for this user or slug conflict"})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to onboard vendor: " + err.Error()})
 		return
 	}
 
-	// Mocking slug and other fields in response since DB doesn't store them
 	c.JSON(http.StatusCreated, gin.H{"message": "Vendor profile created successfully", "vendor_id": vendorID, "slug": slug})
 }
 
@@ -81,32 +76,30 @@ func (h *VendorHandler) GetMyProfile(c *gin.Context) {
 		return
 	}
 
-	// Neon Schema: user_id, display_name, bio, city, primary_profile_image_url
-	// Mapped to Frontend: business_name, slug, category, city, bio, whatsapp_link, portfolio_image_url, verified
-
+	// Use COALESCE for nullable text fields to avoid Scan errors
+	// Use 'status' column instead of non-existent 'verified' column
 	query := `
-		SELECT display_name, city, COALESCE(bio, ''), primary_profile_image_url
+		SELECT business_name, slug, category, city, COALESCE(bio, ''), whatsapp_link, portfolio_image_url, gallery_images, portfolio_files, status
 		FROM vendor_profiles 
-		WHERE user_id = $1
+		WHERE owner_user_id = $1
 	`
 
-	var name, city, bio string
+	var name, slug, category, city, bio, whatsappLink, status string
 	var portfolioImageURL *string
+	var galleryImages []string
+	var portfolioFiles []interface{}
 
 	err := db.Pool.QueryRow(context.Background(), query, userID).Scan(
-		&name, &city, &bio,
-		&portfolioImageURL,
+		&name, &slug, &category, &city, &bio, &whatsappLink,
+		&portfolioImageURL, &galleryImages, &portfolioFiles, &status,
 	)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Vendor profile not found"})
 		return
 	}
 
-	// Defaults for missing schema fields
-	slug := strings.ToLower(strings.ReplaceAll(name, " ", "-")) // Mock slug
-	category := "General"                                       // Default
-	whatsappLink := ""                                          // Not stored
-	verified := true                                            // Default to true if profile exists, as status column is missing
+	// Map status to verified boolean
+	verified := (status == "verified")
 
 	c.JSON(http.StatusOK, gin.H{
 		"business_name":       name,
@@ -116,17 +109,17 @@ func (h *VendorHandler) GetMyProfile(c *gin.Context) {
 		"bio":                 bio,
 		"whatsapp_link":       whatsappLink,
 		"portfolio_image_url": portfolioImageURL,
-		"gallery_images":      []string{}, // Missing table/column logic adjustment needed if tables exist?
-		"portfolio_files":     []interface{}{},
+		"gallery_images":      galleryImages,
+		"portfolio_files":     portfolioFiles,
 		"verified":            verified,
 	})
 }
 
 func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
-	// Neon Schema compatibility
 	query := `
-		SELECT display_name, city, bio, primary_profile_image_url 
-		FROM vendor_profiles
+		SELECT business_name, slug, category, city, bio, whatsapp_link, portfolio_image_url 
+		FROM vendor_profiles 
+		WHERE status = 'verified'
 	`
 	rows, err := db.Pool.Query(context.Background(), query)
 	if err != nil {
@@ -137,21 +130,18 @@ func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 
 	var vendors []gin.H
 	for rows.Next() {
-		var name, city, bio string
+		var name, slug, category, city, bio, whatsappLink string
 		var portfolioImageURL *string
-		if err := rows.Scan(&name, &city, &bio, &portfolioImageURL); err != nil {
+		if err := rows.Scan(&name, &slug, &category, &city, &bio, &whatsappLink, &portfolioImageURL); err != nil {
 			continue
 		}
-
-		slug := strings.ToLower(strings.ReplaceAll(name, " ", "-"))
-
 		vendors = append(vendors, gin.H{
 			"business_name":       name,
 			"slug":                slug,
-			"category":            "General",
+			"category":            category,
 			"city":                city,
 			"bio":                 bio,
-			"whatsapp_link":       "",
+			"whatsapp_link":       whatsappLink,
 			"portfolio_image_url": portfolioImageURL,
 		})
 	}
@@ -160,15 +150,40 @@ func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 }
 
 func (h *VendorHandler) GetVendorBySlug(c *gin.Context) {
-	// Slug lookup is impossible efficiently if slug is not in DB.
-	// We might have to query by ... name? Or iterate?
-	// For now, let's assume we can't really support lookups by slug well without the column.
-	// But we can try to find by display_name mostly matching?
-	// Or maybe the frontend passes ID? No, route is /vendors/slug/:slug.
-	// This is broken on Neon without slug column.
-	// I will return empty or error.
+	slug := c.Param("slug")
+	query := `
+		SELECT business_name, slug, category, city, bio, whatsapp_link, portfolio_image_url, gallery_images, portfolio_files
+		FROM vendor_profiles 
+		WHERE slug = $1 AND status = 'verified'
+	`
 
-	c.JSON(http.StatusNotFound, gin.H{"error": "Vendor lookup by slug not supported in current schema"})
+	var name, s, category, city, bio, whatsappLink string
+	var portfolioImageURL *string
+	var galleryImages []string
+	var portfolioFiles []interface{} // Changed to []interface{} to handle JSONB properly
+
+	// We need to handle potential NULLs for array/jsonb if they weren't set with defaults correctly in old rows
+	// But our alteration set defaults.
+	err := db.Pool.QueryRow(context.Background(), query, slug).Scan(
+		&name, &s, &category, &city, &bio, &whatsappLink,
+		&portfolioImageURL, &galleryImages, &portfolioFiles,
+	)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Vendor not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"business_name":       name,
+		"slug":                s,
+		"category":            category,
+		"city":                city,
+		"bio":                 bio,
+		"whatsapp_link":       whatsappLink,
+		"portfolio_image_url": portfolioImageURL,
+		"gallery_images":      galleryImages,
+		"portfolio_files":     portfolioFiles,
+	})
 }
 
 type UpdateVendorRequest struct {
@@ -195,43 +210,53 @@ func (h *VendorHandler) UpdateVendor(c *gin.Context) {
 		return
 	}
 
-	// Neon Schema: user_id, display_name, city, bio, primary_profile_image_url
-	// Mapped from: business_name, city, bio, portfolio_image_url
-	// Missing: category, whatsapp_link, gallery_images, portfolio_files (need check if tables exist for these?)
-	// User provided schema for gallery and portfolio files MATCHES standard naming mostly (vendor_id).
-	// So we can support gallery/portfolio if we have vendor_id.
+	// Calculate new slug if business name changes?
+	// For simplicity, let's keep slug persistent or only update if explicitly needed.
+	// The requirement doesn't specify slug updates, so we'll skip slug updates to avoid breaking links.
 
-	// BUT UpdateVendor updates vendor_profiles table.
+	// Handling PortfolioFiles JSONB
+	// We might need to marshal it to string or byte[] if the driver requires it,
+	// but pgx usually handles []interface{} -> jsonb automatically if we pass it right.
+	// However, it's safer to just pass it directly if the driver supports it.
+
+	// Handle Updates
+	// We need to verify ownership first or just update where owner_user_id = userID
 	query := `
 		UPDATE vendor_profiles 
-		SET display_name = COALESCE(NULLIF($2, ''), display_name),
-		    city = COALESCE(NULLIF($3, ''), city),
-		    bio = COALESCE(NULLIF($4, ''), bio),
-		    primary_profile_image_url = $5
-		WHERE user_id = $1
+		SET business_name = COALESCE(NULLIF($2, ''), business_name),
+		    category = COALESCE(NULLIF($3, ''), category),
+		    city = COALESCE(NULLIF($4, ''), city),
+		    bio = COALESCE(NULLIF($5, ''), bio),
+		    whatsapp_link = COALESCE(NULLIF($6, ''), whatsapp_link),
+		    portfolio_image_url = $7,
+		    gallery_images = $8,
+		    portfolio_files = $9
+		WHERE owner_user_id = $1
 		RETURNING id
 	`
+
+	// Note: For arrays and jsonb, if they are empty/nil in request, we might want to keep existing?
+	// But usually a save replaces the list. So we will overwrite.
+	// COALESCE logic above is for strings. For arrays, we probably want to allow clearing them (empty list).
+	// So we pass them directly.
 
 	var id string
 	err := db.Pool.QueryRow(context.Background(), query,
 		userID,
-		req.BusinessName, // mapped to display_name
+		req.BusinessName,
+		req.Category,
 		req.City,
 		req.Bio,
-		req.PortfolioImageURL, // mapped to primary_profile_image_url
+		req.WhatsappLink,
+		req.PortfolioImageURL,
+		req.GalleryImages,
+		req.PortfolioFiles,
 	).Scan(&id)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update vendor profile: " + err.Error()})
 		return
 	}
-
-	// Gallery and Portfolio updates are handled by separate upload endpoints usually?
-	// The UpdateVendorRequest struct has GalleryImages string[], but we don't have gallery_images column in vendor_profiles anymore in Neon schema.
-	// Neon schema has `vendor_gallery_images` TABLE.
-	// So we should NOT update gallery_images column here.
-	// If the frontend expects this endpoint to update gallery order/content by list, we'd need to sync with the table.
-	// For now, removing the column update is safest to avoid crash.
 
 	c.JSON(http.StatusOK, gin.H{"message": "Vendor profile updated successfully"})
 }
