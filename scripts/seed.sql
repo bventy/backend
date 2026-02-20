@@ -39,6 +39,9 @@ DECLARE
     uid_vendor8 UUID := uuid_generate_v4();
     uid_vendor9 UUID := uuid_generate_v4();
     uid_vendor10 UUID := uuid_generate_v4();
+    uid_pending1 UUID := uuid_generate_v4();
+    uid_pending2 UUID := uuid_generate_v4();
+    uid_pending3 UUID := uuid_generate_v4();
     uid_user1 UUID := uuid_generate_v4();
     uid_user2 UUID := uuid_generate_v4();
     uid_user3 UUID := uuid_generate_v4();
@@ -56,6 +59,9 @@ BEGIN
     (uid_vendor8, 'vendor8@gmail.com', pass_hash, 'Sneha Tare', 'floral_vibes', 'user', 'Pune'),
     (uid_vendor9, 'vendor9@gmail.com', pass_hash, 'Vikram Malhotra', 'transport_pro', 'user', 'Pune'),
     (uid_vendor10, 'vendor10@gmail.com', pass_hash, 'Aditi Rao', 'invitation_studio', 'user', 'Pune'),
+    (uid_pending1, 'pending1@gmail.com', pass_hash, 'Suresh Kadam', 'creative_cakes', 'user', 'Pune'),
+    (uid_pending2, 'pending2@gmail.com', pass_hash, 'Anita Shinde', 'sparkle_lights', 'user', 'Pune'),
+    (uid_pending3, 'pending3@gmail.com', pass_hash, 'Rohan Mehta', 'royal_banquets', 'user', 'Pune'),
     (uid_user1, 'user1@gmail.com', pass_hash, 'Rahul Kulkarni', 'rahul_k', 'user', 'Pune'),
     (uid_user2, 'user2@gmail.com', pass_hash, 'Anjali More', 'anjali_m', 'user', 'Pune'),
     (uid_user3, 'user3@gmail.com', pass_hash, 'Vikram Singh', 'vikram_s', 'user', 'Pune');
@@ -71,7 +77,10 @@ BEGIN
     (uid_vendor7, 'Stellar Lights', 'stellar-lights-pune', 'Decor', 'Pune', 'Ambient and stage lighting experts for large scale outdoor events.', 'https://wa.me/919800000007', 'verified'),
     (uid_vendor8, 'Petals & Props', 'petals-props-pune', 'Decor', 'Pune', 'Luxurious floral arrangements and prop rentals for boutique events.', 'https://wa.me/919800000008', 'verified'),
     (uid_vendor9, 'SafeRide Transport', 'saferide-transport', 'Logistics', 'Pune', 'Reliable guest transport and luxury car rentals for events in Pune.', 'https://wa.me/919800000009', 'verified'),
-    (uid_vendor10, 'Ink & Paper Invite Studio', 'ink-paper-invite', 'Stationery', 'Pune', 'Custom wedding invitations and event stationery with a modern touch.', 'https://wa.me/919800000010', 'verified');
+    (uid_vendor10, 'Ink & Paper Invite Studio', 'ink-paper-invite', 'Stationery', 'Pune', 'Custom wedding invitations and event stationery with a modern touch.', 'https://wa.me/919800000010', 'verified'),
+    (uid_pending1, 'Creative Cakes', 'creative-cakes-pune', 'Catering', 'Pune', 'Delicious custom cakes and desserts for all occasions.', 'https://wa.me/919800000011', 'pending'),
+    (uid_pending2, 'Sparkle Lights', 'sparkle-lights-pune', 'Decor', 'Pune', 'Making your events shine with our unique lighting solutions.', 'https://wa.me/919800000012', 'pending'),
+    (uid_pending3, 'Royal Banquets', 'royal-banquets-pune', 'Venue', 'Pune', 'A grand setting for your unforgettable celebrations.', 'https://wa.me/919800000013', 'pending');
 
     -- 3. SEED GROUPS
     INSERT INTO groups (name, slug, description, city, owner_user_id) VALUES
