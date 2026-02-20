@@ -152,12 +152,12 @@ func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 func (h *VendorHandler) GetVendorBySlug(c *gin.Context) {
 	slug := c.Param("slug")
 	query := `
-		SELECT business_name, slug, category, city, bio, whatsapp_link, portfolio_image_url, gallery_images, portfolio_files
+		SELECT id, business_name, slug, category, city, bio, whatsapp_link, portfolio_image_url, gallery_images, portfolio_files
 		FROM vendor_profiles 
 		WHERE slug = $1 AND status = 'verified'
 	`
 
-	var name, s, category, city, bio, whatsappLink string
+	var id, name, s, category, city, bio, whatsappLink string
 	var portfolioImageURL *string
 	var galleryImages []string
 	var portfolioFiles []interface{} // Changed to []interface{} to handle JSONB properly
@@ -165,7 +165,7 @@ func (h *VendorHandler) GetVendorBySlug(c *gin.Context) {
 	// We need to handle potential NULLs for array/jsonb if they weren't set with defaults correctly in old rows
 	// But our alteration set defaults.
 	err := db.Pool.QueryRow(context.Background(), query, slug).Scan(
-		&name, &s, &category, &city, &bio, &whatsappLink,
+		&id, &name, &s, &category, &city, &bio, &whatsappLink,
 		&portfolioImageURL, &galleryImages, &portfolioFiles,
 	)
 	if err != nil {
@@ -174,6 +174,7 @@ func (h *VendorHandler) GetVendorBySlug(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
+		"id":                  id,
 		"business_name":       name,
 		"slug":                s,
 		"category":            category,
