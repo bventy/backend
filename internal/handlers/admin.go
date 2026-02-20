@@ -15,21 +15,28 @@ func NewAdminHandler() *AdminHandler {
 }
 
 // Vendor Moderation
-func (h *AdminHandler) GetPendingVendors(c *gin.Context) {
+func (h *AdminHandler) GetVendors(c *gin.Context) {
+	status := c.Query("status")
 	query := `
-		SELECT
-			vp.id,
-			vp.business_name,
-			vp.owner_user_id,
-			vp.created_at,
+		SELECT 
+			vp.id, 
+			vp.business_name, 
+			vp.owner_user_id, 
+			vp.created_at, 
 			vp.city,
 			vp.category,
 			u.profile_image_url
 		FROM vendor_profiles vp
 		JOIN users u ON vp.owner_user_id = u.id
-		WHERE vp.status = 'pending'
 	`
-	rows, err := db.Pool.Query(context.Background(), query)
+
+	args := []interface{}{}
+	if status != "" {
+		query += " WHERE vp.status = $1"
+		args = append(args, status)
+	}
+
+	rows, err := db.Pool.Query(context.Background(), query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch vendors"})
 		return

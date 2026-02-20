@@ -82,7 +82,7 @@ func RegisterRoutes(r *gin.Engine) {
 			// Note: Keeping RequirePermission for granular control if needed, but AdminOnly covers general access.
 			// If we want to strictly follow "Only admin and super_admin", AdminOnly is sufficient.
 			// Existing code used "vendor.verify" permission. I'll keep it for safety but main gate is AdminOnly.
-			adminRoutes.GET("/vendors/pending", adminHandler.GetPendingVendors)
+			adminRoutes.GET("/vendors", adminHandler.GetVendors)
 			adminRoutes.PATCH("/vendors/:id/approve", adminHandler.VerifyVendor)
 			adminRoutes.PATCH("/vendors/:id/reject", adminHandler.RejectVendor)
 
