@@ -168,6 +168,35 @@ func (h *EventHandler) GetEventById(c *gin.Context) {
 		return
 	}
 
+	// Fetch shortlisted vendors
+	shortlistQuery := `
+		SELECT v.id, v.business_name, v.slug, v.category, v.city
+		FROM event_shortlisted_vendors esv
+		JOIN vendor_profiles v ON esv.vendor_id = v.id
+		WHERE esv.event_id = $1
+	`
+	rows, err := db.Pool.Query(context.Background(), shortlistQuery, eventID)
+	var shortlist []gin.H = []gin.H{} // Initialize as empty slice
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var vid, vname, vslug, vcat, vcity string
+			if err := rows.Scan(&vid, &vname, &vslug, &vcat, &vcity); err == nil {
+				shortlist = append(shortlist, gin.H{
+					"id":            vid,
+					"business_name": vname,
+					"slug":          vslug,
+					"category":      vcat,
+					"city":          vcity,
+				})
+			}
+		}
+	} else {
+		// Log error but don't fail the whole request? Or fail?
+		// For now, simple logging or ignoring if table empty is fine, but Query shouldn't fail unless DB issue.
+		// If DB issue, maybe we should return 500. But let's proceed with empty list to show event at least.
+	}
+
 	event = gin.H{
 		"id":                 id,
 		"title":              title,
@@ -179,6 +208,7 @@ func (h *EventHandler) GetEventById(c *gin.Context) {
 		"cover_image_url":    coverImageURL,
 		"organizer_user_id":  organizerUserID,
 		"organizer_group_id": organizerGroupID,
+		"shortlist":          shortlist,
 	}
 
 	c.JSON(http.StatusOK, event)
