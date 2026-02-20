@@ -22,7 +22,6 @@ func (h *AdminHandler) GetVendors(c *gin.Context) {
 			vp.id, 
 			vp.business_name, 
 			vp.owner_user_id, 
-			vp.created_at, 
 			vp.city,
 			vp.category,
 			u.profile_image_url
@@ -47,9 +46,8 @@ func (h *AdminHandler) GetVendors(c *gin.Context) {
 	for rows.Next() {
 		var id, businessName, ownerID, city, category string
 		var profileImageURL *string
-		var createdAt interface{}
 
-		if err := rows.Scan(&id, &businessName, &ownerID, &createdAt, &city, &category, &profileImageURL); err != nil {
+		if err := rows.Scan(&id, &businessName, &ownerID, &city, &category, &profileImageURL); err != nil {
 			continue
 		}
 
@@ -57,7 +55,6 @@ func (h *AdminHandler) GetVendors(c *gin.Context) {
 			"id":                        id,
 			"business_name":             businessName,
 			"user_id":                   ownerID,
-			"created_at":                createdAt,
 			"city":                      city,
 			"category":                  category,
 			"primary_profile_image_url": profileImageURL,
