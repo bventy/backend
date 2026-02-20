@@ -20,10 +20,10 @@ func (h *AdminHandler) GetPendingVendors(c *gin.Context) {
 		SELECT
 			vp.id,
 			vp.business_name,
-			vp.slug,
 			vp.owner_user_id,
 			vp.created_at,
 			vp.city,
+			vp.category,
 			u.profile_image_url
 		FROM vendor_profiles vp
 		JOIN users u ON vp.owner_user_id = u.id
@@ -38,21 +38,21 @@ func (h *AdminHandler) GetPendingVendors(c *gin.Context) {
 
 	var vendors []gin.H
 	for rows.Next() {
-		var id, businessName, slug, ownerID, city string
+		var id, businessName, ownerID, city, category string
 		var profileImageURL *string
-		var createdAt interface{} // Use interface to handle time scanning flexibly or specific time type if known. DB driver usually handles time.Time
+		var createdAt interface{}
 
-		if err := rows.Scan(&id, &businessName, &slug, &ownerID, &createdAt, &city, &profileImageURL); err != nil {
+		if err := rows.Scan(&id, &businessName, &ownerID, &createdAt, &city, &category, &profileImageURL); err != nil {
 			continue
 		}
 
 		vendors = append(vendors, gin.H{
 			"id":                        id,
-			"display_name":              businessName,
-			"slug":                      slug,
+			"business_name":             businessName,
 			"user_id":                   ownerID,
 			"created_at":                createdAt,
 			"city":                      city,
+			"category":                  category,
 			"primary_profile_image_url": profileImageURL,
 		})
 	}
