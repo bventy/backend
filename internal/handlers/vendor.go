@@ -117,9 +117,12 @@ func (h *VendorHandler) GetMyProfile(c *gin.Context) {
 
 func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 	query := `
-		SELECT id, business_name, slug, category, city, bio, whatsapp_link, portfolio_image_url, gallery_images
-		FROM vendor_profiles 
-		WHERE status = 'verified'
+		SELECT 
+			vp.id, vp.business_name, vp.slug, vp.category, vp.city, vp.bio, vp.whatsapp_link, vp.portfolio_image_url, vp.gallery_images,
+			u.full_name, u.profile_image_url
+		FROM vendor_profiles vp
+		JOIN users u ON vp.owner_user_id = u.id
+		WHERE vp.status = 'verified'
 	`
 	rows, err := db.Pool.Query(context.Background(), query)
 	if err != nil {
@@ -131,9 +134,9 @@ func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 	var vendors []gin.H
 	for rows.Next() {
 		var id, name, slug, category, city, bio, whatsappLink string
-		var portfolioImageURL *string
+		var portfolioImageURL, ownerFullName, ownerProfileImage *string
 		var galleryImages []string
-		if err := rows.Scan(&id, &name, &slug, &category, &city, &bio, &whatsappLink, &portfolioImageURL, &galleryImages); err != nil {
+		if err := rows.Scan(&id, &name, &slug, &category, &city, &bio, &whatsappLink, &portfolioImageURL, &galleryImages, &ownerFullName, &ownerProfileImage); err != nil {
 			continue
 		}
 		vendors = append(vendors, gin.H{
@@ -146,6 +149,8 @@ func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 			"whatsapp_link":       whatsappLink,
 			"portfolio_image_url": portfolioImageURL,
 			"gallery_images":      galleryImages,
+			"owner_full_name":     ownerFullName,
+			"owner_profile_image": ownerProfileImage,
 		})
 	}
 
@@ -155,21 +160,23 @@ func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 func (h *VendorHandler) GetVendorBySlug(c *gin.Context) {
 	slug := c.Param("slug")
 	query := `
-		SELECT id, business_name, slug, category, city, bio, whatsapp_link, portfolio_image_url, gallery_images, portfolio_files
-		FROM vendor_profiles 
-		WHERE slug = $1 AND status = 'verified'
+		SELECT 
+			vp.id, vp.business_name, vp.slug, vp.category, vp.city, vp.bio, vp.whatsapp_link, vp.portfolio_image_url, vp.gallery_images, vp.portfolio_files,
+			u.full_name, u.profile_image_url
+		FROM vendor_profiles vp
+		JOIN users u ON vp.owner_user_id = u.id
+		WHERE vp.slug = $1 AND vp.status = 'verified'
 	`
 
 	var id, name, s, category, city, bio, whatsappLink string
-	var portfolioImageURL *string
+	var portfolioImageURL, ownerFullName, ownerProfileImage *string
 	var galleryImages []string
-	var portfolioFiles []interface{} // Changed to []interface{} to handle JSONB properly
+	var portfolioFiles []interface{}
 
-	// We need to handle potential NULLs for array/jsonb if they weren't set with defaults correctly in old rows
-	// But our alteration set defaults.
 	err := db.Pool.QueryRow(context.Background(), query, slug).Scan(
 		&id, &name, &s, &category, &city, &bio, &whatsappLink,
 		&portfolioImageURL, &galleryImages, &portfolioFiles,
+		&ownerFullName, &ownerProfileImage,
 	)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Vendor not found"})
@@ -187,6 +194,8 @@ func (h *VendorHandler) GetVendorBySlug(c *gin.Context) {
 		"portfolio_image_url": portfolioImageURL,
 		"gallery_images":      galleryImages,
 		"portfolio_files":     portfolioFiles,
+		"owner_full_name":     ownerFullName,
+		"owner_profile_image": ownerProfileImage,
 	})
 }
 
