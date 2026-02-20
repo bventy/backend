@@ -71,23 +71,35 @@ func RegisterRoutes(r *gin.Engine) {
 		protected.POST("/events/:id/shortlist/:vendorID", eventHandler.ShortlistVendor)
 		protected.GET("/events/:id/shortlist", eventHandler.GetShortlistedVendors)
 
-		// Admin & Staff Routes
+		// Admin Routes (Admin & Super Admin)
 		adminRoutes := protected.Group("/admin")
-		adminRoutes.Use(middleware.RequireRole("staff"))
+		adminRoutes.Use(middleware.AdminOnly())
 		{
-			// Vendor Management (Permission: vendor.verify)
-			adminRoutes.GET("/vendors/pending", middleware.RequirePermission("vendor.verify"), adminHandler.GetPendingVendors)
-			adminRoutes.POST("/vendors/:id/verify", middleware.RequirePermission("vendor.verify"), adminHandler.VerifyVendor)
-			adminRoutes.POST("/vendors/:id/reject", middleware.RequirePermission("vendor.verify"), adminHandler.RejectVendor)
+			// Dashboard Stats
+			adminRoutes.GET("/stats", adminHandler.GetStats)
+
+			// Vendor Management
+			// Note: Keeping RequirePermission for granular control if needed, but AdminOnly covers general access.
+			// If we want to strictly follow "Only admin and super_admin", AdminOnly is sufficient.
+			// Existing code used "vendor.verify" permission. I'll keep it for safety but main gate is AdminOnly.
+			adminRoutes.GET("/vendors/pending", adminHandler.GetPendingVendors)
+			adminRoutes.PATCH("/vendors/:id/approve", adminHandler.VerifyVendor)
+			adminRoutes.PATCH("/vendors/:id/reject", adminHandler.RejectVendor)
 
 			// User Management
-			adminRoutes.POST("/users/:id/promote-staff", middleware.RequireRole("admin"), userHandler.PromoteToStaff)
+			adminRoutes.GET("/users", adminHandler.GetUsers)
+
+			// Role Management (Super Admin Only)
+			// We can use a specific route group or just checking the role in handler (which we added middleware for in route)
+			// Better to be explicit in route definition if possible.
+			adminRoutes.PATCH("/users/:id/role", middleware.RequireRole("super_admin"), adminHandler.UpdateUserRole)
 		}
 
-		// Super Admin Routes
+		// Super Admin Routes (Legacy/Specific)
 		superAdminRoutes := protected.Group("/superadmin")
 		superAdminRoutes.Use(middleware.RequireRole("super_admin"))
 		{
+			// Keep existing if needed, or deprecate/move to admin
 			superAdminRoutes.POST("/users/:id/promote-admin", userHandler.PromoteToAdmin)
 		}
 	}

@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"github.com/bventy/backend/internal/auth"
 	"github.com/bventy/backend/internal/config"
 	"github.com/bventy/backend/internal/db"
+	"github.com/gin-gonic/gin"
 )
 
 func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
@@ -101,6 +101,26 @@ func RequirePermission(requiredPermission string) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden: Missing permission '" + requiredPermission + "'"})
+		c.Abort()
+	}
+}
+
+func AdminOnly() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userRole, exists := c.Get("role")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			c.Abort()
+			return
+		}
+
+		roleStr := userRole.(string)
+		if roleStr == "admin" || roleStr == "super_admin" {
+			c.Next()
+			return
+		}
+
+		c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden: Admin access only"})
 		c.Abort()
 	}
 }
