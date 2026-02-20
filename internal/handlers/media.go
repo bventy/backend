@@ -37,10 +37,20 @@ func (h *MediaHandler) Upload(c *gin.Context) {
 	defer file.Close()
 
 	// Validate file type (simple check)
+	// Check file size (max 5MB)
+	if header.Size > 5*1024*1024 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "File too large (max 5MB)"})
+		return
+	}
+
+	// Validate file type
 	ext := strings.ToLower(filepath.Ext(header.Filename))
-	allowedExts := map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".webp": true}
+	allowedExts := map[string]bool{
+		".jpg": true, ".jpeg": true, ".png": true, ".webp": true,
+		".pdf": true,
+	}
 	if !allowedExts[ext] {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file type. Only JPG, PNG, WEBP allowed."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file type. Only JPG, PNG, WEBP, and PDF allowed."})
 		return
 	}
 
