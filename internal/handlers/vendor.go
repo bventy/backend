@@ -117,7 +117,7 @@ func (h *VendorHandler) GetMyProfile(c *gin.Context) {
 
 func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 	query := `
-		SELECT business_name, slug, category, city, bio, whatsapp_link, portfolio_image_url 
+		SELECT id, business_name, slug, category, city, bio, whatsapp_link, portfolio_image_url, gallery_images
 		FROM vendor_profiles 
 		WHERE status = 'verified'
 	`
@@ -130,12 +130,14 @@ func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 
 	var vendors []gin.H
 	for rows.Next() {
-		var name, slug, category, city, bio, whatsappLink string
+		var id, name, slug, category, city, bio, whatsappLink string
 		var portfolioImageURL *string
-		if err := rows.Scan(&name, &slug, &category, &city, &bio, &whatsappLink, &portfolioImageURL); err != nil {
+		var galleryImages []string
+		if err := rows.Scan(&id, &name, &slug, &category, &city, &bio, &whatsappLink, &portfolioImageURL, &galleryImages); err != nil {
 			continue
 		}
 		vendors = append(vendors, gin.H{
+			"id":                  id,
 			"business_name":       name,
 			"slug":                slug,
 			"category":            category,
@@ -143,6 +145,7 @@ func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 			"bio":                 bio,
 			"whatsapp_link":       whatsappLink,
 			"portfolio_image_url": portfolioImageURL,
+			"gallery_images":      galleryImages,
 		})
 	}
 
