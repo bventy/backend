@@ -141,6 +141,28 @@ func (s *MediaService) DeleteFile(fileURL string) error {
 	return nil
 }
 
+// GetSignedURL generates a pre-signed URL for a private object
+func (s *MediaService) GetSignedURL(fileURL string) (string, error) {
+	if fileURL == "" {
+		return "", fmt.Errorf("empty file URL")
+	}
+
+	key := strings.TrimPrefix(fileURL, s.PublicBaseURL)
+	key = strings.TrimPrefix(key, "/")
+
+	presignClient := s3.NewPresignClient(s.Client)
+	presignedReq, err := presignClient.PresignGetObject(context.TODO(), &s3.GetObjectInput{
+		Bucket: aws.String(s.Bucket),
+		Key:    aws.String(key),
+	}, s3.WithPresignExpires(60*60)) // 1 hour expiration
+
+	if err != nil {
+		return "", fmt.Errorf("failed to generate signed URL: %w", err)
+	}
+
+	return presignedReq.URL, nil
+}
+
 // Register dummy imports to keep compiler happy if unused logic
 var _ = jpeg.Decode
 var _ = png.Decode
