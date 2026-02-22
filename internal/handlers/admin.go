@@ -161,44 +161,9 @@ func (h *AdminHandler) UpdateUserRole(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "User role updated successfully"})
 }
 
-// Stats
+// Stats (Legacy mapping for dashboard stats)
 func (h *AdminHandler) GetStats(c *gin.Context) {
-	var totalUsers, totalVendors, pendingVendors, totalEvents int
-
-	// Run queries concurrently or sequentially. Sequential is fine for now.
-
-	// Total Users
-	err := db.Pool.QueryRow(context.Background(), "SELECT count(*) FROM users").Scan(&totalUsers)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch stats"})
-		return
-	}
-
-	// Total Vendors
-	err = db.Pool.QueryRow(context.Background(), "SELECT count(*) FROM vendor_profiles").Scan(&totalVendors)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch stats"})
-		return
-	}
-
-	// Pending Vendors
-	err = db.Pool.QueryRow(context.Background(), "SELECT count(*) FROM vendor_profiles WHERE status = 'pending'").Scan(&pendingVendors)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch stats"})
-		return
-	}
-
-	// Total Events
-	err = db.Pool.QueryRow(context.Background(), "SELECT count(*) FROM events").Scan(&totalEvents)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch stats"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"total_users":     totalUsers,
-		"total_vendors":   totalVendors,
-		"pending_vendors": pendingVendors,
-		"total_events":    totalEvents,
-	})
+	// Re-route or reuse the overview logic
+	metricsHandler := NewAdminMetricsHandler()
+	metricsHandler.GetAdminMetricsOverview(c)
 }

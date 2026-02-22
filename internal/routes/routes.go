@@ -75,8 +75,15 @@ func RegisterRoutes(r *gin.Engine) {
 		adminRoutes := protected.Group("/admin")
 		adminRoutes.Use(middleware.AdminOnly())
 		{
-			// Dashboard Stats
+			// Dashboard Stats (Legacy)
 			adminRoutes.GET("/stats", adminHandler.GetStats)
+
+			// Analytics Layer
+			adminMetricsHandler := handlers.NewAdminMetricsHandler()
+			adminRoutes.GET("/metrics/overview", adminMetricsHandler.GetAdminMetricsOverview)
+			adminRoutes.GET("/metrics/growth", adminMetricsHandler.GetAdminMetricsGrowth)
+			adminRoutes.GET("/metrics/events", adminMetricsHandler.GetAdminMetricsEvents)
+			adminRoutes.GET("/metrics/vendors", adminMetricsHandler.GetAdminMetricsVendors)
 
 			// Vendor Management
 			// Note: Keeping RequirePermission for granular control if needed, but AdminOnly covers general access.
