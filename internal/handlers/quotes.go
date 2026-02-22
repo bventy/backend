@@ -216,7 +216,7 @@ func (h *QuotesHandler) GetOrganizerQuotes(c *gin.Context) {
 
 type RespondQuotePayload struct {
 	QuotedPrice    float64 `json:"quoted_price" binding:"required"`
-	VendorResponse string  `json:"vendor_response" binding:"required"`
+	VendorResponse string  `json:"vendor_response"`
 }
 
 // PATCH /quotes/respond/:id
