@@ -83,6 +83,8 @@ func RegisterRoutes(r *gin.Engine) {
 		protected.PATCH("/quotes/respond/:id", quotesHandler.RespondToQuote)
 		protected.PATCH("/quotes/accept/:id", quotesHandler.AcceptQuote)
 		protected.PATCH("/quotes/reject/:id", quotesHandler.RejectQuote)
+		protected.PATCH("/quotes/revision/:id", quotesHandler.RequestRevision)
+		protected.GET("/quotes/:id/contact", quotesHandler.GetQuoteContact)
 
 		// Admin Routes (Admin & Super Admin)
 		adminRoutes := protected.Group("/admin")
