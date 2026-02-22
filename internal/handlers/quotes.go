@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 
@@ -107,6 +108,8 @@ func (h *QuotesHandler) GetVendorQuotes(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
+	h.lazyUpdateQuotesAndEvents(ctx, userID.(string))
+
 	// Get vendor ID from userID
 	var vendorID string
 	err := db.Pool.QueryRow(ctx, "SELECT id FROM vendor_profiles WHERE owner_user_id = $1", userID.(string)).Scan(&vendorID)
@@ -118,7 +121,8 @@ func (h *QuotesHandler) GetVendorQuotes(c *gin.Context) {
 	query := `
 		SELECT qr.id, qr.event_id, e.title as event_title, qr.organizer_user_id, u.full_name as organizer_name, 
 		       qr.message, qr.quoted_price, qr.vendor_response, qr.status, qr.responded_at, qr.created_at, qr.budget_range,
-		       qr.special_requirements, qr.deadline, qr.attachment_url, qr.accepted_at, qr.rejected_at, qr.revision_requested_at, qr.contact_unlocked_at
+		       qr.special_requirements, qr.deadline, qr.attachment_url, qr.accepted_at, qr.rejected_at, qr.revision_requested_at, qr.contact_unlocked_at,
+		       qr.contact_expires_at, qr.archived_at
 		FROM quote_requests qr
 		JOIN events e ON qr.event_id = e.id
 		JOIN users u ON qr.organizer_user_id = u.id
@@ -137,11 +141,12 @@ func (h *QuotesHandler) GetVendorQuotes(c *gin.Context) {
 		var id, eventID, eventTitle, organizerID, organizerName, status string
 		var message, vendorResponse, budgetRange, specialReq, deadline, attachmentURL *string
 		var quotedPrice *float64
-		var respondedAt, createdAt, acceptedAt, rejectedAt, revisionAt, unlockedAt interface{}
+		var respondedAt, createdAt, acceptedAt, rejectedAt, revisionAt, unlockedAt, expiresAt, archivedAt interface{}
 
 		err := rows.Scan(
 			&id, &eventID, &eventTitle, &organizerID, &organizerName, &message, &quotedPrice, &vendorResponse, &status,
 			&respondedAt, &createdAt, &budgetRange, &specialReq, &deadline, &attachmentURL, &acceptedAt, &rejectedAt, &revisionAt, &unlockedAt,
+			&expiresAt, &archivedAt,
 		)
 		if err != nil {
 			log.Printf("Error scanning vendor quote row: %v", err)
@@ -165,6 +170,8 @@ func (h *QuotesHandler) GetVendorQuotes(c *gin.Context) {
 			"special_requirements":  specialReq,
 			"deadline":              deadline,
 			"attachment_url":        attachmentURL,
+			"contact_expires_at":    expiresAt,
+			"archived_at":           archivedAt,
 		})
 	}
 	if quotes == nil {
@@ -183,11 +190,13 @@ func (h *QuotesHandler) GetOrganizerQuotes(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
+	h.lazyUpdateQuotesAndEvents(ctx, userID.(string))
 
 	query := `
 		SELECT qr.id, qr.event_id, e.title as event_title, qr.vendor_id, v.business_name as vendor_name, 
 		       qr.message, qr.quoted_price, qr.vendor_response, qr.status, qr.responded_at, qr.created_at, qr.budget_range,
-		       qr.special_requirements, qr.deadline, qr.attachment_url, qr.accepted_at, qr.rejected_at, qr.revision_requested_at, qr.contact_unlocked_at
+		       qr.special_requirements, qr.deadline, qr.attachment_url, qr.accepted_at, qr.rejected_at, qr.revision_requested_at, qr.contact_unlocked_at,
+		       qr.contact_expires_at, qr.archived_at
 		FROM quote_requests qr
 		JOIN events e ON qr.event_id = e.id
 		JOIN vendor_profiles v ON qr.vendor_id = v.id
@@ -206,11 +215,12 @@ func (h *QuotesHandler) GetOrganizerQuotes(c *gin.Context) {
 		var id, eventID, eventTitle, vendorID, vendorName, status string
 		var message, vendorResponse, budgetRange, specialReq, deadline, attachmentURL *string
 		var quotedPrice *float64
-		var respondedAt, createdAt, acceptedAt, rejectedAt, revisionAt, unlockedAt interface{}
+		var respondedAt, createdAt, acceptedAt, rejectedAt, revisionAt, unlockedAt, expiresAt, archivedAt interface{}
 
 		err := rows.Scan(
 			&id, &eventID, &eventTitle, &vendorID, &vendorName, &message, &quotedPrice, &vendorResponse, &status,
 			&respondedAt, &createdAt, &budgetRange, &specialReq, &deadline, &attachmentURL, &acceptedAt, &rejectedAt, &revisionAt, &unlockedAt,
+			&expiresAt, &archivedAt,
 		)
 		if err != nil {
 			log.Printf("Error scanning organizer quote row: %v", err)
@@ -234,6 +244,8 @@ func (h *QuotesHandler) GetOrganizerQuotes(c *gin.Context) {
 			"special_requirements":  specialReq,
 			"deadline":              deadline,
 			"attachment_url":        attachmentURL,
+			"contact_expires_at":    expiresAt,
+			"archived_at":           archivedAt,
 		})
 	}
 	if quotes == nil {
@@ -327,10 +339,15 @@ func (h *QuotesHandler) GetQuoteContact(c *gin.Context) {
 	quoteID := c.Param("id")
 	ctx := c.Request.Context()
 
+	// 0. Lazy check for this specific quote
+	h.lazyUpdateQuotesAndEvents(ctx, userID.(string))
+
 	// 1. Get quote details and verify authorization
 	var status, organizerID, vendorID, eventID string
-	query := `SELECT status, organizer_user_id, vendor_id, event_id FROM quote_requests WHERE id = $1`
-	err := db.Pool.QueryRow(ctx, query, quoteID).Scan(&status, &organizerID, &vendorID, &eventID)
+	var archivedAt *string
+	var expiresAt *string
+	query := `SELECT status, organizer_user_id, vendor_id, event_id, archived_at, contact_expires_at FROM quote_requests WHERE id = $1`
+	err := db.Pool.QueryRow(ctx, query, quoteID).Scan(&status, &organizerID, &vendorID, &eventID, &archivedAt, &expiresAt)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Quote not found"})
 		return
@@ -364,9 +381,13 @@ func (h *QuotesHandler) GetQuoteContact(c *gin.Context) {
 		return
 	}
 
-	// 4. Strict Gating: Only allowed if status is 'accepted'
+	// 4. Strict Gating: Only allowed if status is 'accepted' and NOT archived/expired
 	if status != "accepted" {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Contact information is only available for accepted quotes"})
+		return
+	}
+	if archivedAt != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Contact access has expired and quote is archived."})
 		return
 	}
 
@@ -432,17 +453,31 @@ func (h *QuotesHandler) updateQuoteStatusByOrganizer(c *gin.Context, newStatus s
 	}
 
 	timestampColumn := ""
-	switch newStatus {
-	case "accepted":
-		timestampColumn = "accepted_at = NOW(), contact_unlocked_at = NOW(),"
-	case "rejected":
-		timestampColumn = "rejected_at = NOW(),"
-	case "revision_requested":
-		timestampColumn = "revision_requested_at = NOW(),"
+	if newStatus == "accepted" {
+		// Calculate expiry: event_date + 15 days or now + 30 days
+		var eventDate *string
+		err := db.Pool.QueryRow(ctx, "SELECT event_date FROM events WHERE id = (SELECT event_id FROM quote_requests WHERE id = $1)", quoteID).Scan(&eventDate)
+		if err == nil && eventDate != nil {
+			timestampColumn = "accepted_at = NOW(), contact_unlocked_at = NOW(), contact_expires_at = ($1::date + INTERVAL '15 days'),"
+			// Overwrite the query template below
+			updateQuery := `UPDATE quote_requests SET accepted_at = NOW(), contact_unlocked_at = NOW(), contact_expires_at = ($1::date + INTERVAL '15 days'), status = $2, updated_at = NOW() WHERE id = $3`
+			_, err = db.Pool.Exec(ctx, updateQuery, *eventDate, newStatus, quoteID)
+		} else {
+			timestampColumn = "accepted_at = NOW(), contact_unlocked_at = NOW(), contact_expires_at = (NOW() + INTERVAL '30 days'),"
+			updateQuery := `UPDATE quote_requests SET accepted_at = NOW(), contact_unlocked_at = NOW(), contact_expires_at = (NOW() + INTERVAL '30 days'), status = $1, updated_at = NOW() WHERE id = $2`
+			_, err = db.Pool.Exec(ctx, updateQuery, newStatus, quoteID)
+		}
+	} else {
+		switch newStatus {
+		case "rejected":
+			timestampColumn = "rejected_at = NOW(),"
+		case "revision_requested":
+			timestampColumn = "revision_requested_at = NOW(),"
+		}
+		updateQuery := `UPDATE quote_requests SET ` + timestampColumn + ` status = $1, updated_at = NOW() WHERE id = $2`
+		_, err = db.Pool.Exec(ctx, updateQuery, newStatus, quoteID)
 	}
 
-	updateQuery := `UPDATE quote_requests SET ` + timestampColumn + ` status = $1, updated_at = NOW() WHERE id = $2`
-	_, err = db.Pool.Exec(ctx, updateQuery, newStatus, quoteID)
 	if err != nil {
 		log.Printf("ERROR: Failed to update quote status (%s): %v", newStatus, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update quote status"})
@@ -458,4 +493,45 @@ func (h *QuotesHandler) updateQuoteStatusByOrganizer(c *gin.Context, newStatus s
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Quote " + newStatus + " successfully"})
+}
+
+func (h *QuotesHandler) lazyUpdateQuotesAndEvents(ctx interface{}, userID string) {
+	// 1. Auto-complete events: event_date < CURRENT_DATE
+	updateEventsQuery := `
+		UPDATE events 
+		SET status = 'completed', completed_at = NOW() 
+		WHERE organizer_user_id = $1 AND event_date < CURRENT_DATE AND status != 'completed'
+	`
+	_, _ = db.Pool.Exec(ctx, updateEventsQuery, userID)
+
+	// 2. Auto-archive quotes: contact_expires_at < NOW()
+	// We do this for both involved parties. If userID is organizer, check their quotes.
+	// If userID is vendor, check quotes for their vendor_id.
+
+	// Check if user is vendor first
+	var vendorID string
+	_ = db.Pool.QueryRow(ctx, "SELECT id FROM vendor_profiles WHERE owner_user_id = $1", userID).Scan(&vendorID)
+
+	archiveQuotesQuery := `
+		UPDATE quote_requests 
+		SET status = 'archived', archived_at = NOW() 
+		WHERE (organizer_user_id = $1 OR vendor_id = $2) 
+		AND status = 'accepted' 
+		AND contact_expires_at < NOW() 
+		AND archived_at IS NULL
+		RETURNING id
+	`
+	rows, err := db.Pool.Query(ctx, archiveQuotesQuery, userID, vendorID)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var quoteID string
+			if err := rows.Scan(&quoteID); err == nil {
+				// Log expiry for analytics
+				queryLog := `INSERT INTO platform_activity_log (user_id, event_type, metadata, created_at) VALUES ($1, 'contact_expired', $2, NOW())`
+				metadata := fmt.Sprintf(`{"quote_id": "%s", "triggered_by": "%s"}`, quoteID, userID)
+				_, _ = db.Pool.Exec(ctx, queryLog, userID, metadata)
+			}
+		}
+	}
 }
