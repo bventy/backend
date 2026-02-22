@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -161,13 +162,16 @@ func (h *QuotesHandler) GetVendorQuotes(c *gin.Context) {
 			"organizer_name":        organizerName,
 			"message":               message,
 			"quoted_price":          quotedPrice,
-			"response":              vendorResponse,
+			"vendor_response":       vendorResponse,
 			"status":                status,
+			"created_at":            createdAt,
+			"responded_at":          respondedAt,
 			"accepted_at":           acceptedAt,
 			"rejected_at":           rejectedAt,
 			"revision_requested_at": revisionAt,
 			"contact_unlocked_at":   unlockedAt,
 			"special_requirements":  specialReq,
+			"budget_range":          budgetRange,
 			"deadline":              deadline,
 			"attachment_url":        attachmentURL,
 			"contact_expires_at":    expiresAt,
@@ -235,13 +239,16 @@ func (h *QuotesHandler) GetOrganizerQuotes(c *gin.Context) {
 			"vendor_name":           vendorName,
 			"message":               message,
 			"quoted_price":          quotedPrice,
-			"response":              vendorResponse,
+			"vendor_response":       vendorResponse,
 			"status":                status,
+			"created_at":            createdAt,
+			"responded_at":          respondedAt,
 			"accepted_at":           acceptedAt,
 			"rejected_at":           rejectedAt,
 			"revision_requested_at": revisionAt,
 			"contact_unlocked_at":   unlockedAt,
 			"special_requirements":  specialReq,
+			"budget_range":          budgetRange,
 			"deadline":              deadline,
 			"attachment_url":        attachmentURL,
 			"contact_expires_at":    expiresAt,
@@ -392,8 +399,8 @@ func (h *QuotesHandler) GetQuoteContact(c *gin.Context) {
 	}
 
 	// 5. Fetch contact details
-	var vendorWhatsApp, vendorPhone, vendorEmail string
-	var organizerName, organizerPhone, organizerEmail string
+	var vendorWhatsApp, vendorPhone, vendorEmail *string
+	var organizerName, organizerPhone, organizerEmail *string
 
 	// Vendor contacts (from vendor_profiles and users)
 	vendorQuery := `
@@ -404,6 +411,7 @@ func (h *QuotesHandler) GetQuoteContact(c *gin.Context) {
 	`
 	err = db.Pool.QueryRow(ctx, vendorQuery, vendorID).Scan(&vendorWhatsApp, &vendorPhone, &vendorEmail)
 	if err != nil {
+		log.Printf("ERROR: Failed to fetch vendor contacts: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch vendor contacts"})
 		return
 	}
@@ -412,6 +420,7 @@ func (h *QuotesHandler) GetQuoteContact(c *gin.Context) {
 	organizerQuery := `SELECT full_name, phone, email FROM users WHERE id = $1`
 	err = db.Pool.QueryRow(ctx, organizerQuery, organizerID).Scan(&organizerName, &organizerPhone, &organizerEmail)
 	if err != nil {
+		log.Printf("ERROR: Failed to fetch organizer contacts: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch organizer contacts"})
 		return
 	}
@@ -495,7 +504,7 @@ func (h *QuotesHandler) updateQuoteStatusByOrganizer(c *gin.Context, newStatus s
 	c.JSON(http.StatusOK, gin.H{"message": "Quote " + newStatus + " successfully"})
 }
 
-func (h *QuotesHandler) lazyUpdateQuotesAndEvents(ctx interface{}, userID string) {
+func (h *QuotesHandler) lazyUpdateQuotesAndEvents(ctx context.Context, userID string) {
 	// 1. Auto-complete events: event_date < CURRENT_DATE
 	updateEventsQuery := `
 		UPDATE events 
