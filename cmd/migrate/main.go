@@ -19,7 +19,7 @@ func main() {
 	defer db.Pool.Close()
 
 	// Read migration file
-	migrationFile := "internal/db/migrations/010_restore_password_auth.sql"
+	migrationFile := "internal/db/migrations/015_gated_marketplace_upgrade.sql"
 	content, err := os.ReadFile(migrationFile)
 	if err != nil {
 		log.Fatalf("Failed to read migration file: %v", err)
