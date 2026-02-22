@@ -19,7 +19,7 @@ func RegisterRoutes(r *gin.Engine) {
 	groupHandler := handlers.NewGroupHandler()
 	eventHandler := handlers.NewEventHandler()
 	mediaHandler := handlers.NewMediaHandler(cfg)
-	quotesHandler := handlers.NewQuotesHandler(cfg)
+	quotesHandler := handlers.NewQuotesHandler()
 	trackHandler := handlers.NewTrackHandler()
 
 	// Public Routes
@@ -83,8 +83,6 @@ func RegisterRoutes(r *gin.Engine) {
 		protected.PATCH("/quotes/respond/:id", quotesHandler.RespondToQuote)
 		protected.PATCH("/quotes/accept/:id", quotesHandler.AcceptQuote)
 		protected.PATCH("/quotes/reject/:id", quotesHandler.RejectQuote)
-		protected.PATCH("/quotes/request-revision/:id", quotesHandler.RequestRevision)
-		protected.GET("/quotes/:id/attachment", quotesHandler.GetAttachment)
 
 		// Admin Routes (Admin & Super Admin)
 		adminRoutes := protected.Group("/admin")
