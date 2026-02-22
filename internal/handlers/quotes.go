@@ -144,9 +144,9 @@ func (h *QuotesHandler) GetVendorQuotes(c *gin.Context) {
 	var quotes []gin.H
 	for rows.Next() {
 		var id, eventID, eventTitle, organizerID, organizerName, status string
-		var message, vendorResponse, budgetRange, specialReq, deadline, attachmentURL, revisionMsg *string
+		var message, vendorResponse, budgetRange, specialReq, attachmentURL, revisionMsg *string
 		var quotedPrice *float64
-		var respondedAt, createdAt, acceptedAt, rejectedAt, revisionAt, unlockedAt, expiresAt, archivedAt interface{}
+		var respondedAt, createdAt, acceptedAt, rejectedAt, revisionAt, unlockedAt, expiresAt, archivedAt, deadline interface{}
 
 		err := rows.Scan(
 			&id, &eventID, &eventTitle, &organizerID, &organizerName, &message, &quotedPrice, &vendorResponse, &status,
@@ -222,9 +222,9 @@ func (h *QuotesHandler) GetOrganizerQuotes(c *gin.Context) {
 	var quotes []gin.H
 	for rows.Next() {
 		var id, eventID, eventTitle, vendorID, vendorName, status string
-		var message, vendorResponse, budgetRange, specialReq, deadline, attachmentURL, revisionMsg *string
+		var message, vendorResponse, budgetRange, specialReq, attachmentURL, revisionMsg *string
 		var quotedPrice *float64
-		var respondedAt, createdAt, acceptedAt, rejectedAt, revisionAt, unlockedAt, expiresAt, archivedAt interface{}
+		var respondedAt, createdAt, acceptedAt, rejectedAt, revisionAt, unlockedAt, expiresAt, archivedAt, deadline interface{}
 
 		err := rows.Scan(
 			&id, &eventID, &eventTitle, &vendorID, &vendorName, &message, &quotedPrice, &vendorResponse, &status,
