@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"log"
 	"net/http"
 
 	"github.com/bventy/backend/internal/db"
@@ -94,9 +95,9 @@ func (h *QuotesHandler) GetVendorQuotes(c *gin.Context) {
 	ctx := context.Background()
 	// Get vendor ID from userID
 	var vendorID string
-	err := db.Pool.QueryRow(ctx, "SELECT id FROM vendor_profiles WHERE user_id = $1", userID.(string)).Scan(&vendorID)
+	err := db.Pool.QueryRow(ctx, "SELECT id FROM vendor_profiles WHERE owner_user_id = $1", userID.(string)).Scan(&vendorID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Vendor profile not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Vendor profile not found for this user"})
 		return
 	}
 
@@ -118,26 +119,30 @@ func (h *QuotesHandler) GetVendorQuotes(c *gin.Context) {
 
 	var quotes []gin.H
 	for rows.Next() {
-		var id, eventID, eventTitle, organizerID, organizerName, message, status string
+		var id, eventID, eventTitle, organizerID, organizerName, status string
+		var message, vendorResponse *string
 		var quotedPrice *float64
-		var vendorResponse *string
 		var respondedAt, createdAt interface{}
 
-		if err := rows.Scan(&id, &eventID, &eventTitle, &organizerID, &organizerName, &message, &quotedPrice, &vendorResponse, &status, &respondedAt, &createdAt); err == nil {
-			quotes = append(quotes, gin.H{
-				"id":             id,
-				"event_id":       eventID,
-				"event_title":    eventTitle,
-				"organizer_id":   organizerID,
-				"organizer_name": organizerName,
-				"message":        message,
-				"quoted_price":   quotedPrice,
-				"response":       vendorResponse,
-				"status":         status,
-				"responded_at":   respondedAt,
-				"created_at":     createdAt,
-			})
+		err := rows.Scan(&id, &eventID, &eventTitle, &organizerID, &organizerName, &message, &quotedPrice, &vendorResponse, &status, &respondedAt, &createdAt)
+		if err != nil {
+			log.Printf("Error scanning vendor quote row: %v", err)
+			continue
 		}
+
+		quotes = append(quotes, gin.H{
+			"id":             id,
+			"event_id":       eventID,
+			"event_title":    eventTitle,
+			"organizer_id":   organizerID,
+			"organizer_name": organizerName,
+			"message":        message,
+			"quoted_price":   quotedPrice,
+			"response":       vendorResponse,
+			"status":         status,
+			"responded_at":   respondedAt,
+			"created_at":     createdAt,
+		})
 	}
 	if quotes == nil {
 		quotes = []gin.H{}
@@ -174,26 +179,30 @@ func (h *QuotesHandler) GetOrganizerQuotes(c *gin.Context) {
 
 	var quotes []gin.H
 	for rows.Next() {
-		var id, eventID, eventTitle, vendorID, vendorName, message, status string
+		var id, eventID, eventTitle, vendorID, vendorName, status string
+		var message, vendorResponse *string
 		var quotedPrice *float64
-		var vendorResponse *string
 		var respondedAt, createdAt interface{}
 
-		if err := rows.Scan(&id, &eventID, &eventTitle, &vendorID, &vendorName, &message, &quotedPrice, &vendorResponse, &status, &respondedAt, &createdAt); err == nil {
-			quotes = append(quotes, gin.H{
-				"id":           id,
-				"event_id":     eventID,
-				"event_title":  eventTitle,
-				"vendor_id":    vendorID,
-				"vendor_name":  vendorName,
-				"message":      message,
-				"quoted_price": quotedPrice,
-				"response":     vendorResponse,
-				"status":       status,
-				"responded_at": respondedAt,
-				"created_at":   createdAt,
-			})
+		err := rows.Scan(&id, &eventID, &eventTitle, &vendorID, &vendorName, &message, &quotedPrice, &vendorResponse, &status, &respondedAt, &createdAt)
+		if err != nil {
+			log.Printf("Error scanning organizer quote row: %v", err)
+			continue
 		}
+
+		quotes = append(quotes, gin.H{
+			"id":           id,
+			"event_id":     eventID,
+			"event_title":  eventTitle,
+			"vendor_id":    vendorID,
+			"vendor_name":  vendorName,
+			"message":      message,
+			"quoted_price": quotedPrice,
+			"response":     vendorResponse,
+			"status":       status,
+			"responded_at": respondedAt,
+			"created_at":   createdAt,
+		})
 	}
 	if quotes == nil {
 		quotes = []gin.H{}
@@ -226,7 +235,7 @@ func (h *QuotesHandler) RespondToQuote(c *gin.Context) {
 
 	// Verify vendor owns this quote
 	var vendorID string
-	err := db.Pool.QueryRow(ctx, "SELECT id FROM vendor_profiles WHERE user_id = $1", userID.(string)).Scan(&vendorID)
+	err := db.Pool.QueryRow(ctx, "SELECT id FROM vendor_profiles WHERE owner_user_id = $1", userID.(string)).Scan(&vendorID)
 	if err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Only vendors can respond"})
 		return
