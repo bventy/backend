@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"log"
 	"net/http"
 
@@ -16,10 +15,10 @@ func NewQuotesHandler() *QuotesHandler {
 }
 
 type CreateQuoteRequestPayload struct {
-	EventID     string `json:"event_id" binding:"required"`
-	VendorID    string `json:"vendor_id" binding:"required"`
-	Message     string `json:"message" binding:"required"`
-	BudgetRange string `json:"budget_range"`
+	EventID     string  `json:"event_id" binding:"required"`
+	VendorID    string  `json:"vendor_id" binding:"required"`
+	Message     string  `json:"message" binding:"required"`
+	BudgetRange *string `json:"budget_range"`
 }
 
 // POST /quotes/request (Organizers only)
@@ -37,7 +36,7 @@ func (h *QuotesHandler) CreateQuoteRequest(c *gin.Context) {
 		return
 	}
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 
 	// 1. Validate event exists & belongs to the user
 	var eventOrganizerID string
@@ -68,7 +67,8 @@ func (h *QuotesHandler) CreateQuoteRequest(c *gin.Context) {
 	`
 	err = db.Pool.QueryRow(ctx, insertQuoteQuery, payload.EventID, payload.VendorID, organizerID, payload.Message, payload.BudgetRange).Scan(&quoteID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create quote request"})
+		log.Printf("ERROR: Failed to create quote request: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create quote request: " + err.Error()})
 		return
 	}
 
@@ -93,7 +93,7 @@ func (h *QuotesHandler) GetVendorQuotes(c *gin.Context) {
 		return
 	}
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 	// Get vendor ID from userID
 	var vendorID string
 	err := db.Pool.QueryRow(ctx, "SELECT id FROM vendor_profiles WHERE owner_user_id = $1", userID.(string)).Scan(&vendorID)
@@ -161,7 +161,7 @@ func (h *QuotesHandler) GetOrganizerQuotes(c *gin.Context) {
 		return
 	}
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 
 	query := `
 		SELECT qr.id, qr.event_id, e.title as event_title, qr.vendor_id, v.business_name as vendor_name, 
@@ -216,7 +216,7 @@ func (h *QuotesHandler) GetOrganizerQuotes(c *gin.Context) {
 
 type RespondQuotePayload struct {
 	QuotedPrice    float64 `json:"quoted_price" binding:"required"`
-	VendorResponse string  `json:"vendor_response"`
+	VendorResponse *string `json:"vendor_response"`
 }
 
 // PATCH /quotes/respond/:id
@@ -234,7 +234,7 @@ func (h *QuotesHandler) RespondToQuote(c *gin.Context) {
 		return
 	}
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 
 	// Verify vendor owns this quote
 	var vendorID string
@@ -263,7 +263,8 @@ func (h *QuotesHandler) RespondToQuote(c *gin.Context) {
 	`
 	_, err = db.Pool.Exec(ctx, updateQuery, payload.QuotedPrice, payload.VendorResponse, quoteID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update quote"})
+		log.Printf("ERROR: Failed to update quote response: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update quote: " + err.Error()})
 		return
 	}
 
@@ -289,7 +290,7 @@ func (h *QuotesHandler) updateQuoteStatusByOrganizer(c *gin.Context, newStatus s
 	organizerID := userID.(string)
 	quoteID := c.Param("id")
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 
 	var quoteOrganizerID string
 	err := db.Pool.QueryRow(ctx, "SELECT organizer_user_id FROM quote_requests WHERE id = $1", quoteID).Scan(&quoteOrganizerID)
