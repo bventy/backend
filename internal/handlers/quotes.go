@@ -30,6 +30,10 @@ type CreateQuoteRequestPayload struct {
 	Deadline            *string `json:"deadline"` // ISO string
 }
 
+type RevisionPayload struct {
+	Message string `json:"message"`
+}
+
 // POST /quotes/request (Organizers only)
 func (h *QuotesHandler) CreateQuoteRequest(c *gin.Context) {
 	userID, exists := c.Get("userID")
@@ -123,7 +127,7 @@ func (h *QuotesHandler) GetVendorQuotes(c *gin.Context) {
 		SELECT qr.id, qr.event_id, e.title as event_title, qr.organizer_user_id, u.full_name as organizer_name, 
 		       qr.message, qr.quoted_price, qr.vendor_response, qr.status, qr.responded_at, qr.created_at, qr.budget_range,
 		       qr.special_requirements, qr.deadline, qr.attachment_url, qr.accepted_at, qr.rejected_at, qr.revision_requested_at, qr.contact_unlocked_at,
-		       qr.contact_expires_at, qr.archived_at
+		       qr.contact_expires_at, qr.archived_at, qr.revision_message
 		FROM quote_requests qr
 		JOIN events e ON qr.event_id = e.id
 		JOIN users u ON qr.organizer_user_id = u.id
@@ -140,14 +144,14 @@ func (h *QuotesHandler) GetVendorQuotes(c *gin.Context) {
 	var quotes []gin.H
 	for rows.Next() {
 		var id, eventID, eventTitle, organizerID, organizerName, status string
-		var message, vendorResponse, budgetRange, specialReq, deadline, attachmentURL *string
+		var message, vendorResponse, budgetRange, specialReq, deadline, attachmentURL, revisionMsg *string
 		var quotedPrice *float64
 		var respondedAt, createdAt, acceptedAt, rejectedAt, revisionAt, unlockedAt, expiresAt, archivedAt interface{}
 
 		err := rows.Scan(
 			&id, &eventID, &eventTitle, &organizerID, &organizerName, &message, &quotedPrice, &vendorResponse, &status,
 			&respondedAt, &createdAt, &budgetRange, &specialReq, &deadline, &attachmentURL, &acceptedAt, &rejectedAt, &revisionAt, &unlockedAt,
-			&expiresAt, &archivedAt,
+			&expiresAt, &archivedAt, &revisionMsg,
 		)
 		if err != nil {
 			log.Printf("Error scanning vendor quote row: %v", err)
@@ -176,6 +180,7 @@ func (h *QuotesHandler) GetVendorQuotes(c *gin.Context) {
 			"attachment_url":        attachmentURL,
 			"contact_expires_at":    expiresAt,
 			"archived_at":           archivedAt,
+			"revision_message":      revisionMsg,
 		})
 	}
 	if quotes == nil {
@@ -200,7 +205,7 @@ func (h *QuotesHandler) GetOrganizerQuotes(c *gin.Context) {
 		SELECT qr.id, qr.event_id, e.title as event_title, qr.vendor_id, v.business_name as vendor_name, 
 		       qr.message, qr.quoted_price, qr.vendor_response, qr.status, qr.responded_at, qr.created_at, qr.budget_range,
 		       qr.special_requirements, qr.deadline, qr.attachment_url, qr.accepted_at, qr.rejected_at, qr.revision_requested_at, qr.contact_unlocked_at,
-		       qr.contact_expires_at, qr.archived_at
+		       qr.contact_expires_at, qr.archived_at, qr.revision_message
 		FROM quote_requests qr
 		JOIN events e ON qr.event_id = e.id
 		JOIN vendor_profiles v ON qr.vendor_id = v.id
@@ -217,14 +222,14 @@ func (h *QuotesHandler) GetOrganizerQuotes(c *gin.Context) {
 	var quotes []gin.H
 	for rows.Next() {
 		var id, eventID, eventTitle, vendorID, vendorName, status string
-		var message, vendorResponse, budgetRange, specialReq, deadline, attachmentURL *string
+		var message, vendorResponse, budgetRange, specialReq, deadline, attachmentURL, revisionMsg *string
 		var quotedPrice *float64
 		var respondedAt, createdAt, acceptedAt, rejectedAt, revisionAt, unlockedAt, expiresAt, archivedAt interface{}
 
 		err := rows.Scan(
 			&id, &eventID, &eventTitle, &vendorID, &vendorName, &message, &quotedPrice, &vendorResponse, &status,
 			&respondedAt, &createdAt, &budgetRange, &specialReq, &deadline, &attachmentURL, &acceptedAt, &rejectedAt, &revisionAt, &unlockedAt,
-			&expiresAt, &archivedAt,
+			&expiresAt, &archivedAt, &revisionMsg,
 		)
 		if err != nil {
 			log.Printf("Error scanning organizer quote row: %v", err)
@@ -253,6 +258,7 @@ func (h *QuotesHandler) GetOrganizerQuotes(c *gin.Context) {
 			"attachment_url":        attachmentURL,
 			"contact_expires_at":    expiresAt,
 			"archived_at":           archivedAt,
+			"revision_message":      revisionMsg,
 		})
 	}
 	if quotes == nil {
@@ -322,17 +328,20 @@ func (h *QuotesHandler) RespondToQuote(c *gin.Context) {
 
 // PATCH /quotes/accept/:id
 func (h *QuotesHandler) AcceptQuote(c *gin.Context) {
-	h.updateQuoteStatusByOrganizer(c, "accepted")
+	h.updateQuoteStatusByOrganizer(c, "accepted", "")
 }
 
 // PATCH /quotes/reject/:id
 func (h *QuotesHandler) RejectQuote(c *gin.Context) {
-	h.updateQuoteStatusByOrganizer(c, "rejected")
+	h.updateQuoteStatusByOrganizer(c, "rejected", "")
 }
 
 // PATCH /quotes/revision/:id
 func (h *QuotesHandler) RequestRevision(c *gin.Context) {
-	h.updateQuoteStatusByOrganizer(c, "revision_requested")
+	var payload RevisionPayload
+	_ = c.ShouldBindJSON(&payload) // Optional message
+
+	h.updateQuoteStatusByOrganizer(c, "revision_requested", payload.Message)
 }
 
 // GET /quotes/:id/contact
@@ -439,7 +448,7 @@ func (h *QuotesHandler) GetQuoteContact(c *gin.Context) {
 	})
 }
 
-func (h *QuotesHandler) updateQuoteStatusByOrganizer(c *gin.Context, newStatus string) {
+func (h *QuotesHandler) updateQuoteStatusByOrganizer(c *gin.Context, newStatus string, revisionMessage string) {
 	userID, exists := c.Get("userID")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
@@ -481,10 +490,15 @@ func (h *QuotesHandler) updateQuoteStatusByOrganizer(c *gin.Context, newStatus s
 		case "rejected":
 			timestampColumn = "rejected_at = NOW(),"
 		case "revision_requested":
-			timestampColumn = "revision_requested_at = NOW(),"
+			timestampColumn = "revision_requested_at = NOW(), revision_message = $1,"
 		}
-		updateQuery := `UPDATE quote_requests SET ` + timestampColumn + ` status = $1, updated_at = NOW() WHERE id = $2`
-		_, err = db.Pool.Exec(ctx, updateQuery, newStatus, quoteID)
+		if newStatus == "revision_requested" {
+			updateQuery := `UPDATE quote_requests SET ` + timestampColumn + ` status = $2, updated_at = NOW() WHERE id = $3`
+			_, err = db.Pool.Exec(ctx, updateQuery, revisionMessage, newStatus, quoteID)
+		} else {
+			updateQuery := `UPDATE quote_requests SET ` + timestampColumn + ` status = $1, updated_at = NOW() WHERE id = $2`
+			_, err = db.Pool.Exec(ctx, updateQuery, newStatus, quoteID)
+		}
 	}
 
 	if err != nil {
