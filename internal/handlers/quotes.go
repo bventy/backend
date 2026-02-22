@@ -16,9 +16,10 @@ func NewQuotesHandler() *QuotesHandler {
 }
 
 type CreateQuoteRequestPayload struct {
-	EventID  string `json:"event_id" binding:"required"`
-	VendorID string `json:"vendor_id" binding:"required"`
-	Message  string `json:"message" binding:"required"`
+	EventID     string `json:"event_id" binding:"required"`
+	VendorID    string `json:"vendor_id" binding:"required"`
+	Message     string `json:"message" binding:"required"`
+	BudgetRange string `json:"budget_range"`
 }
 
 // POST /quotes/request (Organizers only)
@@ -61,11 +62,11 @@ func (h *QuotesHandler) CreateQuoteRequest(c *gin.Context) {
 	// 3. Insert quote request
 	var quoteID string
 	insertQuoteQuery := `
-		INSERT INTO quote_requests (event_id, vendor_id, organizer_user_id, message, status)
-		VALUES ($1, $2, $3, $4, 'pending')
+		INSERT INTO quote_requests (event_id, vendor_id, organizer_user_id, message, budget_range, status)
+		VALUES ($1, $2, $3, $4, $5, 'pending')
 		RETURNING id
 	`
-	err = db.Pool.QueryRow(ctx, insertQuoteQuery, payload.EventID, payload.VendorID, organizerID, payload.Message).Scan(&quoteID)
+	err = db.Pool.QueryRow(ctx, insertQuoteQuery, payload.EventID, payload.VendorID, organizerID, payload.Message, payload.BudgetRange).Scan(&quoteID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create quote request"})
 		return
@@ -103,7 +104,7 @@ func (h *QuotesHandler) GetVendorQuotes(c *gin.Context) {
 
 	query := `
 		SELECT qr.id, qr.event_id, e.title as event_title, qr.organizer_user_id, u.full_name as organizer_name, 
-		       qr.message, qr.quoted_price, qr.vendor_response, qr.status, qr.responded_at, qr.created_at
+		       qr.message, qr.quoted_price, qr.vendor_response, qr.status, qr.responded_at, qr.created_at, qr.budget_range
 		FROM quote_requests qr
 		JOIN events e ON qr.event_id = e.id
 		JOIN users u ON qr.organizer_user_id = u.id
@@ -120,11 +121,11 @@ func (h *QuotesHandler) GetVendorQuotes(c *gin.Context) {
 	var quotes []gin.H
 	for rows.Next() {
 		var id, eventID, eventTitle, organizerID, organizerName, status string
-		var message, vendorResponse *string
+		var message, vendorResponse, budgetRange *string
 		var quotedPrice *float64
 		var respondedAt, createdAt interface{}
 
-		err := rows.Scan(&id, &eventID, &eventTitle, &organizerID, &organizerName, &message, &quotedPrice, &vendorResponse, &status, &respondedAt, &createdAt)
+		err := rows.Scan(&id, &eventID, &eventTitle, &organizerID, &organizerName, &message, &quotedPrice, &vendorResponse, &status, &respondedAt, &createdAt, &budgetRange)
 		if err != nil {
 			log.Printf("Error scanning vendor quote row: %v", err)
 			continue
@@ -142,6 +143,7 @@ func (h *QuotesHandler) GetVendorQuotes(c *gin.Context) {
 			"status":         status,
 			"responded_at":   respondedAt,
 			"created_at":     createdAt,
+			"budget_range":   budgetRange,
 		})
 	}
 	if quotes == nil {
@@ -163,7 +165,7 @@ func (h *QuotesHandler) GetOrganizerQuotes(c *gin.Context) {
 
 	query := `
 		SELECT qr.id, qr.event_id, e.title as event_title, qr.vendor_id, v.business_name as vendor_name, 
-		       qr.message, qr.quoted_price, qr.vendor_response, qr.status, qr.responded_at, qr.created_at
+		       qr.message, qr.quoted_price, qr.vendor_response, qr.status, qr.responded_at, qr.created_at, qr.budget_range
 		FROM quote_requests qr
 		JOIN events e ON qr.event_id = e.id
 		JOIN vendor_profiles v ON qr.vendor_id = v.id
@@ -180,11 +182,11 @@ func (h *QuotesHandler) GetOrganizerQuotes(c *gin.Context) {
 	var quotes []gin.H
 	for rows.Next() {
 		var id, eventID, eventTitle, vendorID, vendorName, status string
-		var message, vendorResponse *string
+		var message, vendorResponse, budgetRange *string
 		var quotedPrice *float64
 		var respondedAt, createdAt interface{}
 
-		err := rows.Scan(&id, &eventID, &eventTitle, &vendorID, &vendorName, &message, &quotedPrice, &vendorResponse, &status, &respondedAt, &createdAt)
+		err := rows.Scan(&id, &eventID, &eventTitle, &vendorID, &vendorName, &message, &quotedPrice, &vendorResponse, &status, &respondedAt, &createdAt, &budgetRange)
 		if err != nil {
 			log.Printf("Error scanning organizer quote row: %v", err)
 			continue
@@ -202,6 +204,7 @@ func (h *QuotesHandler) GetOrganizerQuotes(c *gin.Context) {
 			"status":       status,
 			"responded_at": respondedAt,
 			"created_at":   createdAt,
+			"budget_range": budgetRange,
 		})
 	}
 	if quotes == nil {
