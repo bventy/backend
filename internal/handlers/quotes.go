@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -23,11 +24,12 @@ func NewQuotesHandler(cfg *config.Config) *QuotesHandler {
 }
 
 type CreateQuoteRequestPayload struct {
-	EventID             string  `json:"event_id"`
+	EventID             string  `json:"event_id"` // Not required if inline event creation is used
 	VendorID            string  `json:"vendor_id" binding:"required"`
 	Message             string  `json:"message" binding:"required"`
-	SpecialRequirements *string `json:"special_requirements"`
-	Deadline            *string `json:"deadline"` // ISO string
+	BudgetRange         *string `json:"budget_range"`         // Added
+	SpecialRequirements *string `json:"special_requirements"` // Existing
+	Deadline            *string `json:"deadline"`             // Existing (ISO string)
 	// Inline event creation fields
 	EventTitle     string `json:"event_title"`
 	EventType      string `json:"event_type"`
@@ -123,11 +125,11 @@ func (h *QuotesHandler) CreateQuoteRequest(c *gin.Context) {
 	}
 
 	insertQuoteQuery := `
-		INSERT INTO quote_requests (event_id, vendor_id, organizer_user_id, message, special_requirements, deadline, status)
-		VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+		INSERT INTO quote_requests (event_id, vendor_id, organizer_user_id, message, budget_range, special_requirements, deadline, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
 		RETURNING id
 	`
-	err = db.Pool.QueryRow(ctx, insertQuoteQuery, eventID, payload.VendorID, organizerID, payload.Message, payload.SpecialRequirements, deadlineAt).Scan(&quoteID)
+	err = db.Pool.QueryRow(ctx, insertQuoteQuery, eventID, payload.VendorID, organizerID, payload.Message, payload.BudgetRange, payload.SpecialRequirements, deadlineAt).Scan(&quoteID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create quote request: " + err.Error()})
 		return
@@ -165,7 +167,8 @@ func (h *QuotesHandler) GetVendorQuotes(c *gin.Context) {
 
 	query := `
 		SELECT qr.id, qr.event_id, e.title as event_title, qr.organizer_user_id, u.full_name as organizer_name, 
-		       qr.message, qr.special_requirements, qr.deadline, qr.quoted_price, qr.vendor_response, qr.status, qr.responded_at, qr.created_at, qr.attachment_url
+		       qr.message, qr.quoted_price, qr.vendor_response, qr.status, qr.responded_at, qr.created_at, qr.budget_range,
+		       qr.special_requirements, qr.deadline, qr.attachment_url, qr.revision_requested_at
 		FROM quote_requests qr
 		JOIN events e ON qr.event_id = e.id
 		JOIN users u ON qr.organizer_user_id = u.id
@@ -182,31 +185,33 @@ func (h *QuotesHandler) GetVendorQuotes(c *gin.Context) {
 	var quotes []gin.H
 	for rows.Next() {
 		var id, eventID, eventTitle, organizerID, organizerName, status string
-		var message, specialReq, attachmentUrl *string
-		var quotedPrice *int
-		var vendorResponse *string
-		var deadlineAt, respondedAt, createdAt interface{}
+		var message, vendorResponse, budgetRange, specialRequirements, deadline, attachmentURL *string
+		var quotedPrice *float64 // Changed from *int to *float64
+		var respondedAt, createdAt, revisionRequestedAt interface{}
 
-		err := rows.Scan(&id, &eventID, &eventTitle, &organizerID, &organizerName, &message, &specialReq, &deadlineAt, &quotedPrice, &vendorResponse, &status, &respondedAt, &createdAt, &attachmentUrl)
+		err := rows.Scan(&id, &eventID, &eventTitle, &organizerID, &organizerName, &message, &quotedPrice, &vendorResponse, &status, &respondedAt, &createdAt, &budgetRange, &specialRequirements, &deadline, &attachmentURL, &revisionRequestedAt)
 		if err != nil {
+			log.Printf("ERROR: Error scanning vendor quote row: %v", err)
 			continue
 		}
 
 		quotes = append(quotes, gin.H{
-			"id":                   id,
-			"event_id":             eventID,
-			"event_title":          eventTitle,
-			"organizer_id":         organizerID,
-			"organizer_name":       organizerName,
-			"message":              message,
-			"special_requirements": specialReq,
-			"deadline":             deadlineAt,
-			"quoted_price":         quotedPrice,
-			"response":             vendorResponse,
-			"status":               status,
-			"responded_at":         respondedAt,
-			"created_at":           createdAt,
-			"has_attachment":       attachmentUrl != nil,
+			"id":                    id,
+			"event_id":              eventID,
+			"event_title":           eventTitle,
+			"organizer_id":          organizerID,
+			"organizer_name":        organizerName,
+			"message":               message,
+			"quoted_price":          quotedPrice,
+			"response":              vendorResponse,
+			"status":                status,
+			"responded_at":          respondedAt,
+			"created_at":            createdAt,
+			"budget_range":          budgetRange,
+			"special_requirements":  specialRequirements,
+			"deadline":              deadline,
+			"attachment_url":        attachmentURL,
+			"revision_requested_at": revisionRequestedAt,
 		})
 	}
 
@@ -224,7 +229,8 @@ func (h *QuotesHandler) GetOrganizerQuotes(c *gin.Context) {
 	ctx := c.Request.Context()
 	query := `
 		SELECT qr.id, qr.event_id, e.title as event_title, qr.vendor_id, v.business_name as vendor_name, 
-		       qr.message, qr.special_requirements, qr.deadline, qr.quoted_price, qr.vendor_response, qr.status, qr.responded_at, qr.created_at, qr.attachment_url
+		       qr.message, qr.quoted_price, qr.vendor_response, qr.status, qr.responded_at, qr.created_at, qr.budget_range,
+		       qr.special_requirements, qr.deadline, qr.attachment_url, qr.revision_requested_at
 		FROM quote_requests qr
 		JOIN events e ON qr.event_id = e.id
 		JOIN vendor_profiles v ON qr.vendor_id = v.id
@@ -241,31 +247,33 @@ func (h *QuotesHandler) GetOrganizerQuotes(c *gin.Context) {
 	var quotes []gin.H
 	for rows.Next() {
 		var id, eventID, eventTitle, vendorID, vendorName, status string
-		var message, specialReq, attachmentUrl *string
-		var quotedPrice *int
-		var vendorResponse *string
-		var deadlineAt, respondedAt, createdAt interface{}
+		var message, vendorResponse, budgetRange, specialRequirements, deadline, attachmentURL *string
+		var quotedPrice *float64 // Changed from *int to *float64
+		var respondedAt, createdAt, revisionRequestedAt interface{}
 
-		err := rows.Scan(&id, &eventID, &eventTitle, &vendorID, &vendorName, &message, &specialReq, &deadlineAt, &quotedPrice, &vendorResponse, &status, &respondedAt, &createdAt, &attachmentUrl)
+		err := rows.Scan(&id, &eventID, &eventTitle, &vendorID, &vendorName, &message, &quotedPrice, &vendorResponse, &status, &respondedAt, &createdAt, &budgetRange, &specialRequirements, &deadline, &attachmentURL, &revisionRequestedAt)
 		if err != nil {
+			log.Printf("ERROR: Error scanning organizer quote row: %v", err)
 			continue
 		}
 
 		quotes = append(quotes, gin.H{
-			"id":                   id,
-			"event_id":             eventID,
-			"event_title":          eventTitle,
-			"vendor_id":            vendorID,
-			"vendor_name":          vendorName,
-			"message":              message,
-			"special_requirements": specialReq,
-			"deadline":             deadlineAt,
-			"quoted_price":         quotedPrice,
-			"response":             vendorResponse,
-			"status":               status,
-			"responded_at":         respondedAt,
-			"created_at":           createdAt,
-			"has_attachment":       attachmentUrl != nil,
+			"id":                    id,
+			"event_id":              eventID,
+			"event_title":           eventTitle,
+			"vendor_id":             vendorID,
+			"vendor_name":           vendorName,
+			"message":               message,
+			"quoted_price":          quotedPrice,
+			"response":              vendorResponse,
+			"status":                status,
+			"responded_at":          respondedAt,
+			"created_at":            createdAt,
+			"budget_range":          budgetRange,
+			"special_requirements":  specialRequirements,
+			"deadline":              deadline,
+			"attachment_url":        attachmentURL,
+			"revision_requested_at": revisionRequestedAt,
 		})
 	}
 
@@ -307,8 +315,19 @@ func (h *QuotesHandler) RespondToQuote(c *gin.Context) {
 	}
 
 	// 2. Parse payload and file
-	quotedPrice := c.PostForm("quoted_price")
+	// Using c.PostForm for quoted_price and vendor_response to handle multipart/form-data
+	quotedPriceStr := c.PostForm("quoted_price")
 	vendorResponse := c.PostForm("vendor_response")
+
+	var quotedPrice *float64
+	if quotedPriceStr != "" {
+		price, parseErr := services.ParsePrice(quotedPriceStr)
+		if parseErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid quoted_price format"})
+			return
+		}
+		quotedPrice = &price
+	}
 
 	var attachmentURL *string
 	file, header, err := c.Request.FormFile("attachment")
