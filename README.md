@@ -4,7 +4,7 @@ Official Site: [bventy.com](https://bventy.com)
 License: [AGPL-3.0](LICENSE)
 Trademark Policy: [TRADEMARK.md](TRADEMARK.md)
 
-## What This Is
+## The Bventy Platform
 
 Bventy is a structured marketplace platform designed to improve how event organizers and service vendors connect. 
 
