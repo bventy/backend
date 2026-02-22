@@ -39,7 +39,7 @@ func (h *QuotesHandler) CreateQuoteRequest(c *gin.Context) {
 
 	// 1. Validate event exists & belongs to the user
 	var eventOrganizerID string
-	err := db.Pool.QueryRow(ctx, "SELECT user_id FROM events WHERE id = $1", payload.EventID).Scan(&eventOrganizerID)
+	err := db.Pool.QueryRow(ctx, "SELECT organizer_user_id FROM events WHERE id = $1", payload.EventID).Scan(&eventOrganizerID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Event not found"})
 		return
