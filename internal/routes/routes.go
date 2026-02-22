@@ -19,6 +19,8 @@ func RegisterRoutes(r *gin.Engine) {
 	groupHandler := handlers.NewGroupHandler()
 	eventHandler := handlers.NewEventHandler()
 	mediaHandler := handlers.NewMediaHandler(cfg)
+	quotesHandler := handlers.NewQuotesHandler()
+	trackHandler := handlers.NewTrackHandler()
 
 	// Public Routes
 	r.GET("/health", handlers.HealthCheck)
@@ -49,6 +51,9 @@ func RegisterRoutes(r *gin.Engine) {
 		// Media
 		protected.POST("/media/upload", mediaHandler.Upload)
 
+		// Tracking
+		protected.POST("/track/activity", trackHandler.TrackActivity)
+
 		// Vendor Onboarding & Management
 		protected.POST("/vendor/onboard", vendorHandler.OnboardVendor)
 		protected.GET("/vendor/me", vendorHandler.GetMyProfile)
@@ -71,6 +76,14 @@ func RegisterRoutes(r *gin.Engine) {
 		protected.POST("/events/:id/shortlist/:vendorID", eventHandler.ShortlistVendor)
 		protected.GET("/events/:id/shortlist", eventHandler.GetShortlistedVendors)
 
+		// Quotes
+		protected.POST("/quotes/request", quotesHandler.CreateQuoteRequest)
+		protected.GET("/quotes/vendor", quotesHandler.GetVendorQuotes)
+		protected.GET("/quotes/organizer", quotesHandler.GetOrganizerQuotes)
+		protected.PATCH("/quotes/respond/:id", quotesHandler.RespondToQuote)
+		protected.PATCH("/quotes/accept/:id", quotesHandler.AcceptQuote)
+		protected.PATCH("/quotes/reject/:id", quotesHandler.RejectQuote)
+
 		// Admin Routes (Admin & Super Admin)
 		adminRoutes := protected.Group("/admin")
 		adminRoutes.Use(middleware.AdminOnly())
@@ -84,6 +97,7 @@ func RegisterRoutes(r *gin.Engine) {
 			adminRoutes.GET("/metrics/growth", adminMetricsHandler.GetAdminMetricsGrowth)
 			adminRoutes.GET("/metrics/events", adminMetricsHandler.GetAdminMetricsEvents)
 			adminRoutes.GET("/metrics/vendors", adminMetricsHandler.GetAdminMetricsVendors)
+			adminRoutes.GET("/metrics/marketplace", adminMetricsHandler.GetAdminMetricsMarketplace)
 
 			// Vendor Management
 			// Note: Keeping RequirePermission for granular control if needed, but AdminOnly covers general access.
