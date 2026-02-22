@@ -1,79 +1,66 @@
-# Bventy API
+# bventy-backend
 
-The robust, industry-grade Go backend powering the [Bventy](https://bventy.in) marketplace. Built for high performance, security, and scalability.
+## Philosophy
 
-[![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?style=for-the-badge&logo=go)](https://go.dev/)
-[![Gin Framework](https://img.shields.io/badge/Gin-1.9+-00ADD8?style=for-the-badge&logo=go)](https://gin-gonic.com/)
-[![License](https://img.shields.io/badge/License-Proprietary-red?style=for-the-badge)](LICENSE)
+Bventy exists to provide a balanced and structured foundation for service marketplaces. Most platforms prioritize aggressive growth and data harvesting over the quality of interaction between people. We take a different approach.
 
-## 🚀 Overview
+Our design focuses on:
+- Structured interaction: Moving away from chaotic chat-first models toward clear, gated quote workflows.
+- Fair exchange: Protecting both vendor and organizer interests by ensuring requirements are clear before engagement begins.
+- Deliberate communication: Contact information is only unlocked when both parties have reached a mutual agreement on a quote.
+- Transparency: No hidden tracking or dark patterns in how data flows through the system.
 
-Bventy API is a highly modular backend system designed to handle complex marketplace interactions between event organizers and service vendors. It manages everything from identity and access control to real-time quote request lifecycles and advanced analytics.
+## Architecture Overview
 
-### Key Features
-- **Hybrid Marketplace Logic**: Specialized handlers for quote requests, vendor responses, and organizer actions.
-- **Granular RBAC**: Role-based access control protecting critical admin and vendor endpoints.
-- **Media Engine**: Seamless integration with Cloudflare R2 for high-performance file and image handling.
-- **Analytics Layer**: Unified tracking system for platform activity and marketplace growth.
-- **Secure by Design**: JWT-based authentication with robust middleware validation.
+The backend is built as a modular Go service using the Gin framework. It is designed to be lean, transparent, and easy to inspect.
 
-## 🛠 Tech Stack
-- **Language**: Go (1.22+)
-- **Framework**: Gin Gonic
-- **Database**: PostgreSQL (Hosted on Neon)
-- **Object Storage**: Cloudflare R2 (S3 Compatible)
-- **Tracking**: PostHog
-- **Authentication**: JWT (JSON Web Tokens)
+- Frontend: Next.js 15 application handles all user interactions.
+- Backend: Go (Gin) provides the API and marketplace logic.
+- Database: PostgreSQL manages persistent state and relational data.
+- R2 Storage: Cloudflare R2 is used for secure, performant attachment and image storage.
+- Analytics Layer: Minimal tracking focused on operational metrics to understand system usage.
 
-## 📁 Repository Structure
-```text
-.
-├── cmd/                # Entry points
-│   └── api/            # Main server package
-├── internal/           # Private application code
-│   ├── auth/           # Identity & JWT logic
-│   ├── db/             # Data access & migrations
-│   ├── handlers/       # Request routing & controllers
-│   ├── middleware/     # Auth & Role validation
-│   ├── models/         # Database & API schemas
-│   ├── routes/         # Routing definitions
-│   └── services/       # Business logic (e.g., Media)
-├── docs/               # In-depth technical documentation
-└── scripts/            # Database seeding & utility scripts
-```
+## Marketplace Lifecycle
 
-## 🚥 Getting Started
+The system enforces a specific lifecycle for every transaction:
 
-### Prerequisites
-- Go 1.22 or higher
-- PostgreSQL instance (Neon recommended)
-- Cloudflare R2 bucket credentials
+1. Discovery: Organizers browse verified vendor profiles.
+2. Request Quote: Organizers initiate a request with specific event requirements and a mandatory message.
+3. Vendor Responds: Vendors provide a priced response or request adjustments.
+4. Organizer Accepts: If the terms are met, the organizer accepts the quote.
+5. Contact Unlock: Once accepted, contact details are made available to both parties.
+6. Expiry + Archive: Completed or inactive quotes are archived to maintain a clean workspace.
 
-### Quick Start
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/bventy/backend.git
-   cd backend
-   ```
-2. **Setup environment variables**:
-   Create a `.env` file in the root directory. See [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) for details.
-3. **Install dependencies**:
-   ```bash
-   go mod download
-   ```
-4. **Run the server**:
-   ```bash
-   go run cmd/api/main.go
-   ```
+## Privacy & Data
 
-## 📖 Documentation
-- [Architecture & Layering](docs/ARCHITECTURE.md) - Deep dive into how the system is built.
-- [API Reference](docs/API.md) - Endpoint definitions and requirements.
-- [Environment Variables](docs/ENVIRONMENT.md) - Detailed guide on configuration.
-- [Contributing](docs/CONTRIBUTING.md) - Guidelines for developers.
+We believe in data minimalism. 
+- No hidden tracking: Operational analytics are used only to improve system performance.
+- Analytics: Limited to platform activity logs and high-level marketplace metrics.
+- Privacy: No invasive session recording or third-party behavioral profiling.
+- Intentional Gating: Contact data is strictly gated until a mutual agreement is reached.
 
-## 🔒 Security
-We take security seriously. Please do not expose sensitive credentials in PRs. See [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) for secure configuration practices.
+## License Explanation
+
+This project is licensed under the Apache License 2.0 with the Commons Clause restriction. 
+
+We chose this model to protect the sustainability of the project. While the source code is open for review, modification, and self-hosting, the Commons Clause prevents the software from being sold as a service by third parties without permission. This ensures that the primary development team can continue to support the project independently.
+
+## Contributing
+
+The project is open to contributions that align with our philosophy.
+- Issues: We welcome bug reports and architectural discussions via GitHub Issues.
+- Improvements: Pull requests are encouraged for performance optimizations and feature refinements.
+- Roadmap: Our development plan is transparent and focused on stability.
+
+## Roadmap
+
+This list reflects our current focus. No specific timelines are promised.
+
+- Quote system refinement
+- Reviews and feedback system
+- Vendor performance scoring
+- Payment escrow (future consideration)
+- Commission handling logic (future consideration)
 
 ---
-© 2026 Bventy. All rights reserved.
+© 2026 Bventy.
