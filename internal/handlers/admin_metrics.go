@@ -115,9 +115,10 @@ func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 		if dateCol == "" {
 			dateCol = "created_at"
 		}
-		whereClause := ""
+
+		filter := ""
 		if condition != "" {
-			whereClause = " WHERE " + condition
+			filter = " AND " + condition
 		}
 
 		// 1. Fetch Series Data
@@ -130,7 +131,7 @@ func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 				)
 				SELECT dr.d::text, count(t.id)
 				FROM date_range dr
-				LEFT JOIN ` + table + ` t ON DATE(t.` + dateCol + `) = dr.d ` + whereClause + `
+				LEFT JOIN ` + table + ` t ON DATE(t.` + dateCol + `) = dr.d ` + filter + `
 				GROUP BY dr.d
 				ORDER BY dr.d ASC
 			`
@@ -141,7 +142,7 @@ func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 				)
 				SELECT dr.d::text, count(t.id)
 				FROM date_range dr
-				LEFT JOIN ` + table + ` t ON date_trunc('week', t.` + dateCol + `)::date = dr.d ` + whereClause + `
+				LEFT JOIN ` + table + ` t ON date_trunc('week', t.` + dateCol + `)::date = dr.d ` + filter + `
 				GROUP BY dr.d
 				ORDER BY dr.d ASC
 			`
@@ -152,7 +153,7 @@ func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 				)
 				SELECT dr.d::text, count(t.id)
 				FROM date_range dr
-				LEFT JOIN ` + table + ` t ON date_trunc('month', t.` + dateCol + `)::date = dr.d ` + whereClause + `
+				LEFT JOIN ` + table + ` t ON date_trunc('month', t.` + dateCol + `)::date = dr.d ` + filter + `
 				GROUP BY dr.d
 				ORDER BY dr.d ASC
 			`
