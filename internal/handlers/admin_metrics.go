@@ -60,7 +60,7 @@ func (h *AdminMetricsHandler) GetAdminMetricsOverview(c *gin.Context) {
 func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 	ctx := c.Request.Context()
 
-	// 1. Determine Earliest Data Point across all relevant tables
+	// 1. Determine Earliest Data Point
 	var earliestRecord time.Time
 	db.Pool.QueryRow(ctx, `
 		SELECT MIN(min_date) FROM (
@@ -74,95 +74,101 @@ func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 		) as combined_dates
 	`).Scan(&earliestRecord)
 
-	// 2. Start date is either 30 days ago OR the earliest record (whichever is LATER)
-	// Actually, the user wants it "precise" and adaptive.
-	// If the platform is 5 days old, show 5 days. If 50 days old, show last 30.
-	thirtyDaysAgo := time.Now().AddDate(0, 0, -30)
-	startDate := thirtyDaysAgo
-	if !earliestRecord.IsZero() && earliestRecord.After(thirtyDaysAgo) {
-		startDate = earliestRecord
+	now := time.Now()
+	if earliestRecord.IsZero() {
+		earliestRecord = now.AddDate(0, 0, -1) // Edge case: no data
 	}
 
-	type dailyStat struct {
+	// 2. Adaptive Granularity
+	// Age < 60 days -> Daily
+	// Age < 2 years -> Weekly
+	// Age >= 2 years -> Monthly (up to 3 years)
+	daysOld := int(now.Sub(earliestRecord).Hours() / 24)
+	granularity := "day"
+	startDate := earliestRecord
+
+	if daysOld > 730 { // > 2 years
+		granularity = "month"
+		threeYearsAgo := now.AddDate(-3, 0, 0)
+		if startDate.Before(threeYearsAgo) {
+			startDate = threeYearsAgo
+		}
+	} else if daysOld > 60 {
+		granularity = "week"
+	}
+
+	type metricStat struct {
 		Date  string `json:"date"`
 		Count int    `json:"count"`
 	}
 
-	// Helper to fetch and fill missing dates
-	fetchAndFillGrowthData := func(query string, start time.Time) []dailyStat {
+	// Helper to fetch and fill missing intervals using SQL series generation
+	fetchGrowthData := func(table string, start time.Time, gran string) []metricStat {
+		query := ""
+		switch gran {
+		case "day":
+			query = `
+				WITH date_range AS (
+					SELECT generate_series($1::date, CURRENT_DATE, '1 day')::date as d
+				)
+				SELECT dr.d::text, count(t.id)
+				FROM date_range dr
+				LEFT JOIN ` + table + ` t ON DATE(t.created_at) = dr.d
+				GROUP BY dr.d
+				ORDER BY dr.d ASC
+			`
+		case "week":
+			query = `
+				WITH date_range AS (
+					SELECT generate_series(date_trunc('week', $1::date), date_trunc('week', CURRENT_DATE), '1 week')::date as d
+				)
+				SELECT dr.d::text, count(t.id)
+				FROM date_range dr
+				LEFT JOIN ` + table + ` t ON date_trunc('week', t.created_at)::date = dr.d
+				GROUP BY dr.d
+				ORDER BY dr.d ASC
+			`
+		case "month":
+			query = `
+				WITH date_range AS (
+					SELECT generate_series(date_trunc('month', $1::date), date_trunc('month', CURRENT_DATE), '1 month')::date as d
+				)
+				SELECT dr.d::text, count(t.id)
+				FROM date_range dr
+				LEFT JOIN ` + table + ` t ON date_trunc('month', t.created_at)::date = dr.d
+				GROUP BY dr.d
+				ORDER BY dr.d ASC
+			`
+		}
+
 		rows, err := db.Pool.Query(ctx, query, start)
 		if err != nil {
-			return []dailyStat{}
+			return []metricStat{}
 		}
 		defer rows.Close()
 
-		dataMap := make(map[string]int)
+		var stats []metricStat
 		for rows.Next() {
-			var date time.Time
+			var date string
 			var count int
 			if err := rows.Scan(&date, &count); err == nil {
-				dataMap[date.Format("2006-01-02")] = count
+				stats = append(stats, metricStat{Date: date, Count: count})
 			}
 		}
-
-		// Fill in all dates from startDate to now
-		var stats []dailyStat
-		curr := start
-		now := time.Now()
-		for !curr.After(now) {
-			dateStr := curr.Format("2006-01-02")
-			count := 0
-			if val, ok := dataMap[dateStr]; ok {
-				count = val
-			}
-			stats = append(stats, dailyStat{Date: dateStr, Count: count})
-			curr = curr.AddDate(0, 0, 1)
-		}
-
 		return stats
 	}
 
-	userSignupsQuery := `
-		SELECT DATE(created_at) as date, count(*) as count
-		FROM users
-		WHERE created_at >= $1
-		GROUP BY DATE(created_at)
-		ORDER BY DATE(created_at) ASC
-	`
-	userGrowth := fetchAndFillGrowthData(userSignupsQuery, startDate)
-
-	vendorSignupsQuery := `
-		SELECT DATE(created_at) as date, count(*) as count
-		FROM vendor_profiles
-		WHERE created_at >= $1
-		GROUP BY DATE(created_at)
-		ORDER BY DATE(created_at) ASC
-	`
-	vendorGrowth := fetchAndFillGrowthData(vendorSignupsQuery, startDate)
-
-	eventsCreatedQuery := `
-		SELECT DATE(created_at) as date, count(*) as count
-		FROM events
-		WHERE created_at >= $1
-		GROUP BY DATE(created_at)
-		ORDER BY DATE(created_at) ASC
-	`
-	eventGrowth := fetchAndFillGrowthData(eventsCreatedQuery, startDate)
-
-	quotesCreatedQuery := `
-		SELECT DATE(created_at) as date, count(*) as count
-		FROM quote_requests
-		WHERE created_at >= $1
-		GROUP BY DATE(created_at)
-		ORDER BY DATE(created_at) ASC
-	`
-	quoteGrowth := fetchAndFillGrowthData(quotesCreatedQuery, startDate)
+	userGrowth := fetchGrowthData("users", startDate, granularity)
+	vendorGrowth := fetchGrowthData("vendor_profiles", startDate, granularity)
+	eventGrowth := fetchGrowthData("events", startDate, granularity)
+	quoteGrowth := fetchGrowthData("quote_requests", startDate, granularity)
 
 	c.JSON(http.StatusOK, gin.H{
 		"userGrowth":   userGrowth,
 		"vendorGrowth": vendorGrowth,
 		"eventGrowth":  eventGrowth,
 		"quoteGrowth":  quoteGrowth,
+		"granularity":  granularity, // Tell frontend what the granularity is
 	})
 }
 
