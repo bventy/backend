@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -32,7 +33,7 @@ func (h *ReviewHandler) CreateReview(c *gin.Context) {
 		return
 	}
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 
 	// Strict Gating: Verify user has an accepted quote for a completed/past event
 	// If req.QuoteID is provided, we check that specific one.
@@ -75,7 +76,8 @@ func (h *ReviewHandler) CreateReview(c *gin.Context) {
 	var createdAt time.Time
 	err = db.Pool.QueryRow(ctx, query, vendorID, organizerID, validQuoteID, req.Rating, req.Comment).Scan(&reviewID, &createdAt)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to submit review: " + err.Error()})
+		fmt.Printf("ERROR: Failed to submit review for vendor %s by user %s: %v\n", vendorID, organizerID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to submit review"})
 		return
 	}
 
@@ -108,6 +110,7 @@ func (h *ReviewHandler) CheckEligibility(c *gin.Context) {
 	var isEligible bool
 	err := db.Pool.QueryRow(ctx, query, organizerID, vendorID).Scan(&isEligible)
 	if err != nil {
+		fmt.Printf("ERROR: Failed to check review eligibility for vendor %s by user %s: %v\n", vendorID, organizerID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check eligibility"})
 		return
 	}

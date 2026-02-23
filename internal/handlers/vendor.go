@@ -128,7 +128,7 @@ func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 		WHERE vp.status = 'verified'
 		GROUP BY vp.id, u.id
 	`
-	rows, err := db.Pool.Query(context.Background(), query)
+	rows, err := db.Pool.Query(c.Request.Context(), query)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch vendors"})
 		return
@@ -188,7 +188,7 @@ func (h *VendorHandler) GetVendorBySlug(c *gin.Context) {
 	var avgRating float64
 	var reviewCount int
 
-	err := db.Pool.QueryRow(context.Background(), query, slug).Scan(
+	err := db.Pool.QueryRow(c.Request.Context(), query, slug).Scan(
 		&id, &name, &s, &category, &city, &bio, &whatsappLink,
 		&portfolioImageURL, &galleryImages, &portfolioFiles,
 		&ownerFullName, &ownerProfileImage,
