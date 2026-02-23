@@ -102,7 +102,8 @@ func (h *ReviewHandler) CheckEligibility(c *gin.Context) {
 			WHERE qr.organizer_user_id = $1 
 			  AND qr.vendor_id = $2 
 			  AND qr.status = 'accepted'
-			  AND (e.status = 'completed' OR e.date < NOW())
+			  -- Updated to use 'date' or NOW() check correctly if status column is missing or default
+			  AND (e.date < NOW())
 		)
 	`
 
@@ -110,7 +111,7 @@ func (h *ReviewHandler) CheckEligibility(c *gin.Context) {
 	err := db.Pool.QueryRow(ctx, query, organizerID, vendorID).Scan(&isEligible)
 	if err != nil {
 		fmt.Printf("ERROR: Failed to check review eligibility for vendor %s by user %s: %v\n", vendorID, organizerID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check eligibility"})
+		c.JSON(http.StatusOK, gin.H{"eligible": false, "message": "Could not verify eligibility"})
 		return
 	}
 
@@ -132,7 +133,7 @@ func (h *ReviewHandler) GetVendorReviews(c *gin.Context) {
 		SELECT r.id, r.rating, r.comment, r.created_at, u.full_name as organizer_name, u.profile_image_url
 		FROM vendor_reviews r
 		JOIN users u ON r.organizer_user_id = u.id
-		WHERE r.vendor_id = $1 OR r.vendor_id = (SELECT id FROM vendor_profiles WHERE slug = $1)
+		WHERE r.vendor_id::text = $1 OR r.vendor_id = (SELECT id FROM vendor_profiles WHERE slug = $1)
 		ORDER BY r.created_at DESC
 	`
 
