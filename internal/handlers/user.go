@@ -200,6 +200,14 @@ func (h *UserHandler) UpdateMe(c *gin.Context) {
 	var id, email, fullName, role string
 	var username *string // Scan into pointer for potential NULL
 
+	err := db.Pool.QueryRow(c.Request.Context(), query,
+		userID,
+		req.FullName,
+		usernameArg,
+		phoneArg,
+		cityArg,
+		bioArg,
+		imageArg,
 	).Scan(&id, &email, &fullName, &username, &role)
 
 	if err != nil {
