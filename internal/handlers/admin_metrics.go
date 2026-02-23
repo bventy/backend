@@ -111,7 +111,15 @@ func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 	}
 
 	// Helper to fetch and fill missing intervals using SQL series generation
-	fetchGrowthData := func(table string) growthDetail {
+	fetchGrowthData := func(table string, condition string, dateCol string) growthDetail {
+		if dateCol == "" {
+			dateCol = "created_at"
+		}
+		whereClause := ""
+		if condition != "" {
+			whereClause = " WHERE " + condition
+		}
+
 		// 1. Fetch Series Data
 		querySeries := ""
 		switch granularity {
@@ -122,7 +130,7 @@ func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 				)
 				SELECT dr.d::text, count(t.id)
 				FROM date_range dr
-				LEFT JOIN ` + table + ` t ON DATE(t.created_at) = dr.d
+				LEFT JOIN ` + table + ` t ON DATE(t.` + dateCol + `) = dr.d ` + whereClause + `
 				GROUP BY dr.d
 				ORDER BY dr.d ASC
 			`
@@ -133,7 +141,7 @@ func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 				)
 				SELECT dr.d::text, count(t.id)
 				FROM date_range dr
-				LEFT JOIN ` + table + ` t ON date_trunc('week', t.created_at)::date = dr.d
+				LEFT JOIN ` + table + ` t ON date_trunc('week', t.` + dateCol + `)::date = dr.d ` + whereClause + `
 				GROUP BY dr.d
 				ORDER BY dr.d ASC
 			`
@@ -144,7 +152,7 @@ func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 				)
 				SELECT dr.d::text, count(t.id)
 				FROM date_range dr
-				LEFT JOIN ` + table + ` t ON date_trunc('month', t.created_at)::date = dr.d
+				LEFT JOIN ` + table + ` t ON date_trunc('month', t.` + dateCol + `)::date = dr.d ` + whereClause + `
 				GROUP BY dr.d
 				ORDER BY dr.d ASC
 			`
@@ -164,27 +172,37 @@ func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 		}
 
 		// 2. Fetch Comparison Stats
-		db.Pool.QueryRow(ctx, `
+		statsQuery := `
 			SELECT 
-				(SELECT count(*) FROM `+table+`) as total,
-				(SELECT count(*) FROM `+table+` WHERE created_at >= NOW() - INTERVAL '30 days') as past_30,
-				(SELECT count(*) FROM `+table+` WHERE created_at >= NOW() - INTERVAL '60 days' AND created_at < NOW() - INTERVAL '30 days') as prev_30
-		`).Scan(&detail.TotalAllTime, &detail.NewPast30Days, &detail.NewPrevious30Days)
+				(SELECT count(*) FROM ` + table + whereClause + `) as total,
+				(SELECT count(*) FROM ` + table + ` WHERE ` + dateCol + ` >= NOW() - INTERVAL '30 days' ` + (func() string {
+			if condition != "" {
+				return " AND " + condition
+			}
+			return ""
+		})() + `) as past_30,
+				(SELECT count(*) FROM ` + table + ` WHERE ` + dateCol + ` >= NOW() - INTERVAL '60 days' AND ` + dateCol + ` < NOW() - INTERVAL '30 days' ` + (func() string {
+			if condition != "" {
+				return " AND " + condition
+			}
+			return ""
+		})() + `) as prev_30
+		`
+		db.Pool.QueryRow(ctx, statsQuery).Scan(&detail.TotalAllTime, &detail.NewPast30Days, &detail.NewPrevious30Days)
 
 		return detail
 	}
 
-	userGrowth := fetchGrowthData("users")
-	vendorGrowth := fetchGrowthData("vendor_profiles")
-	eventGrowth := fetchGrowthData("events")
-	quoteGrowth := fetchGrowthData("quote_requests")
-
 	c.JSON(http.StatusOK, gin.H{
-		"userGrowth":   userGrowth,
-		"vendorGrowth": vendorGrowth,
-		"eventGrowth":  eventGrowth,
-		"quoteGrowth":  quoteGrowth,
-		"granularity":  granularity,
+		"userGrowth":           fetchGrowthData("users", "", ""),
+		"vendorGrowth":         fetchGrowthData("vendor_profiles", "", ""),
+		"verifiedVendorGrowth": fetchGrowthData("vendor_profiles", "status = 'verified'", ""),
+		"pendingVendorGrowth":  fetchGrowthData("vendor_profiles", "status = 'pending'", ""),
+		"eventGrowth":          fetchGrowthData("events", "", ""),
+		"completedEventGrowth": fetchGrowthData("events", "event_date < CURRENT_DATE", "event_date"),
+		"groupGrowth":          fetchGrowthData("groups", "", ""),
+		"quoteGrowth":          fetchGrowthData("quote_requests", "", ""),
+		"granularity":          granularity,
 	})
 }
 
