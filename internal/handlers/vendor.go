@@ -10,6 +10,7 @@ import (
 	"github.com/bventy/backend/internal/db"
 	"github.com/bventy/backend/internal/services"
 	"github.com/gin-gonic/gin"
+	pgx "github.com/jackc/pgx/v5"
 )
 
 type VendorHandler struct {
@@ -120,16 +121,20 @@ func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 		SELECT 
 			vp.id, vp.business_name, vp.slug, vp.category, vp.city, vp.bio, vp.whatsapp_link, vp.portfolio_image_url, vp.gallery_images,
 			u.full_name, u.profile_image_url,
-			COALESCE(AVG(vr.rating), 0) as average_rating,
-			COUNT(vr.id) as review_count
+			COALESCE(rs.avg_rating, 0) as average_rating,
+			COALESCE(rs.review_count, 0) as review_count
 		FROM vendor_profiles vp
 		JOIN users u ON vp.owner_user_id = u.id
-		LEFT JOIN vendor_reviews vr ON vp.id = vr.vendor_id
+		LEFT JOIN (
+			SELECT vendor_id, AVG(rating) as avg_rating, COUNT(id) as review_count
+			FROM vendor_reviews
+			GROUP BY vendor_id
+		) rs ON vp.id = rs.vendor_id
 		WHERE vp.status = 'verified'
-		GROUP BY vp.id, u.id
 	`
 	rows, err := db.Pool.Query(c.Request.Context(), query)
 	if err != nil {
+		fmt.Printf("ERROR: Failed to fetch verified vendors: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch vendors"})
 		return
 	}
@@ -172,13 +177,16 @@ func (h *VendorHandler) GetVendorBySlug(c *gin.Context) {
 		SELECT 
 			vp.id, vp.business_name, vp.slug, vp.category, vp.city, vp.bio, vp.whatsapp_link, vp.portfolio_image_url, vp.gallery_images, vp.portfolio_files,
 			u.full_name, u.profile_image_url,
-			COALESCE(AVG(vr.rating), 0) as average_rating,
-			COUNT(vr.id) as review_count
+			COALESCE(rs.avg_rating, 0) as average_rating,
+			COALESCE(rs.review_count, 0) as review_count
 		FROM vendor_profiles vp
 		JOIN users u ON vp.owner_user_id = u.id
-		LEFT JOIN vendor_reviews vr ON vp.id = vr.vendor_id
+		LEFT JOIN (
+			SELECT vendor_id, AVG(rating) as avg_rating, COUNT(id) as review_count
+			FROM vendor_reviews
+			GROUP BY vendor_id
+		) rs ON vp.id = rs.vendor_id
 		WHERE vp.slug = $1 AND vp.status = 'verified'
-		GROUP BY vp.id, u.id
 	`
 
 	var id, name, s, category, city, bio, whatsappLink string
@@ -195,6 +203,9 @@ func (h *VendorHandler) GetVendorBySlug(c *gin.Context) {
 		&avgRating, &reviewCount,
 	)
 	if err != nil {
+		if err != pgx.ErrNoRows {
+			fmt.Printf("ERROR: Failed to fetch vendor by slug %s: %v\n", slug, err)
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": "Vendor not found"})
 		return
 	}
