@@ -21,11 +21,13 @@ func RegisterRoutes(r *gin.Engine) {
 	mediaHandler := handlers.NewMediaHandler(cfg)
 	quotesHandler := handlers.NewQuotesHandler()
 	trackHandler := handlers.NewTrackHandler()
+	reviewHandler := handlers.NewReviewHandler()
 
 	// Public Routes
 	r.GET("/health", handlers.HealthCheck)
 	r.GET("/vendors", vendorHandler.ListVerifiedVendors)
 	r.GET("/vendors/slug/:slug", vendorHandler.GetVendorBySlug)
+	r.GET("/vendors/:id/reviews", reviewHandler.GetVendorReviews)
 
 	// Media Upload (Protected? or Public? usually protected)
 	// User didn't specify, but let's make it protected to prevent abuse.
@@ -64,6 +66,9 @@ func RegisterRoutes(r *gin.Engine) {
 		protected.DELETE("/vendors/:id/gallery/:imageID", vendorHandler.DeleteGalleryImage)
 		protected.POST("/vendors/:id/portfolio", vendorHandler.UploadPortfolioFile)
 		protected.DELETE("/vendors/:id/portfolio/:fileID", vendorHandler.DeletePortfolioFile)
+
+		// Vendor Reviews
+		protected.POST("/vendors/:id/reviews", reviewHandler.CreateReview)
 
 		// Groups
 		protected.POST("/groups", groupHandler.CreateGroup)
