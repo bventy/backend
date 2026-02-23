@@ -32,30 +32,48 @@ func (h *ReviewHandler) CreateReview(c *gin.Context) {
 		return
 	}
 
-	// Optional: Check if the user is an organizer?
-	// Our middleware usually handles role checks if we apply handlers.OrganizerOnly()
-	// but let's just ensure they aren't reviewing themselves if they are also a vendor.
-
 	ctx := context.Background()
 
-	// Verify vendor exists
-	var exists bool
-	err := db.Pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM vendor_profiles WHERE id = $1)", vendorID).Scan(&exists)
-	if err != nil || !exists {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Vendor not found"})
+	// Strict Gating: Verify user has an accepted quote for a completed/past event
+	// If req.QuoteID is provided, we check that specific one.
+	// If not, we check if they have ANY such quote.
+
+	eligibilityQuery := `
+		SELECT qr.id
+		FROM quote_requests qr
+		JOIN events e ON qr.event_id = e.id
+		WHERE qr.organizer_user_id = $1 
+		  AND qr.vendor_id = $2 
+		  AND qr.status = 'accepted'
+		  AND (e.status = 'completed' OR e.date < NOW())
+	`
+
+	var validQuoteID string
+	var err error
+	if req.QuoteID != "" {
+		eligibilityQuery += " AND qr.id = $3"
+		err = db.Pool.QueryRow(ctx, eligibilityQuery, organizerID, vendorID, req.QuoteID).Scan(&validQuoteID)
+	} else {
+		err = db.Pool.QueryRow(ctx, eligibilityQuery, organizerID, vendorID).Scan(&validQuoteID)
+	}
+
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "You are not eligible to review this vendor. You must have an accepted quote for a completed event.",
+		})
 		return
 	}
 
 	// Insert review
 	query := `
 		INSERT INTO vendor_reviews (vendor_id, organizer_user_id, quote_id, rating, comment)
-		VALUES ($1, $2, NULLIF($3, '')::UUID, $4, $5)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, created_at
 	`
 
 	var reviewID string
 	var createdAt time.Time
-	err = db.Pool.QueryRow(ctx, query, vendorID, organizerID, req.QuoteID, req.Rating, req.Comment).Scan(&reviewID, &createdAt)
+	err = db.Pool.QueryRow(ctx, query, vendorID, organizerID, validQuoteID, req.Rating, req.Comment).Scan(&reviewID, &createdAt)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to submit review: " + err.Error()})
 		return
@@ -65,6 +83,38 @@ func (h *ReviewHandler) CreateReview(c *gin.Context) {
 		"message":    "Review submitted successfully",
 		"id":         reviewID,
 		"created_at": createdAt,
+	})
+}
+
+func (h *ReviewHandler) CheckEligibility(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	organizerID := userID.(string)
+	vendorID := c.Param("id")
+
+	ctx := context.Background()
+
+	query := `
+		SELECT EXISTS (
+			SELECT 1
+			FROM quote_requests qr
+			JOIN events e ON qr.event_id = e.id
+			WHERE qr.organizer_user_id = $1 
+			  AND qr.vendor_id = $2 
+			  AND qr.status = 'accepted'
+			  AND (e.status = 'completed' OR e.date < NOW())
+		)
+	`
+
+	var isEligible bool
+	err := db.Pool.QueryRow(ctx, query, organizerID, vendorID).Scan(&isEligible)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check eligibility"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"eligible": isEligible,
+		"message":  "Check eligibility completed",
 	})
 }
 
