@@ -119,10 +119,14 @@ func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 	query := `
 		SELECT 
 			vp.id, vp.business_name, vp.slug, vp.category, vp.city, vp.bio, vp.whatsapp_link, vp.portfolio_image_url, vp.gallery_images,
-			u.full_name, u.profile_image_url
+			u.full_name, u.profile_image_url,
+			COALESCE(AVG(vr.rating), 0) as average_rating,
+			COUNT(vr.id) as review_count
 		FROM vendor_profiles vp
 		JOIN users u ON vp.owner_user_id = u.id
+		LEFT JOIN vendor_reviews vr ON vp.id = vr.vendor_id
 		WHERE vp.status = 'verified'
+		GROUP BY vp.id, u.id
 	`
 	rows, err := db.Pool.Query(context.Background(), query)
 	if err != nil {
@@ -136,7 +140,10 @@ func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 		var id, name, slug, category, city, bio, whatsappLink string
 		var portfolioImageURL, ownerFullName, ownerProfileImage *string
 		var galleryImages []string
-		if err := rows.Scan(&id, &name, &slug, &category, &city, &bio, &whatsappLink, &portfolioImageURL, &galleryImages, &ownerFullName, &ownerProfileImage); err != nil {
+		var avgRating float64
+		var reviewCount int
+
+		if err := rows.Scan(&id, &name, &slug, &category, &city, &bio, &whatsappLink, &portfolioImageURL, &galleryImages, &ownerFullName, &ownerProfileImage, &avgRating, &reviewCount); err != nil {
 			continue
 		}
 		vendors = append(vendors, gin.H{
@@ -151,6 +158,8 @@ func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 			"gallery_images":      galleryImages,
 			"owner_full_name":     ownerFullName,
 			"owner_profile_image": ownerProfileImage,
+			"average_rating":      avgRating,
+			"review_count":        reviewCount,
 		})
 	}
 
@@ -162,21 +171,28 @@ func (h *VendorHandler) GetVendorBySlug(c *gin.Context) {
 	query := `
 		SELECT 
 			vp.id, vp.business_name, vp.slug, vp.category, vp.city, vp.bio, vp.whatsapp_link, vp.portfolio_image_url, vp.gallery_images, vp.portfolio_files,
-			u.full_name, u.profile_image_url
+			u.full_name, u.profile_image_url,
+			COALESCE(AVG(vr.rating), 0) as average_rating,
+			COUNT(vr.id) as review_count
 		FROM vendor_profiles vp
 		JOIN users u ON vp.owner_user_id = u.id
+		LEFT JOIN vendor_reviews vr ON vp.id = vr.vendor_id
 		WHERE vp.slug = $1 AND vp.status = 'verified'
+		GROUP BY vp.id, u.id
 	`
 
 	var id, name, s, category, city, bio, whatsappLink string
 	var portfolioImageURL, ownerFullName, ownerProfileImage *string
 	var galleryImages []string
 	var portfolioFiles []interface{}
+	var avgRating float64
+	var reviewCount int
 
 	err := db.Pool.QueryRow(context.Background(), query, slug).Scan(
 		&id, &name, &s, &category, &city, &bio, &whatsappLink,
 		&portfolioImageURL, &galleryImages, &portfolioFiles,
 		&ownerFullName, &ownerProfileImage,
+		&avgRating, &reviewCount,
 	)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Vendor not found"})
@@ -196,6 +212,8 @@ func (h *VendorHandler) GetVendorBySlug(c *gin.Context) {
 		"portfolio_files":     portfolioFiles,
 		"owner_full_name":     ownerFullName,
 		"owner_profile_image": ownerProfileImage,
+		"average_rating":      avgRating,
+		"review_count":        reviewCount,
 	})
 }
 
