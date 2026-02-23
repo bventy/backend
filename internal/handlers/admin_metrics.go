@@ -173,6 +173,11 @@ func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 		}
 
 		// 2. Fetch Comparison Stats
+		whereClause := ""
+		if condition != "" {
+			whereClause = " WHERE " + condition
+		}
+
 		statsQuery := `
 			SELECT 
 				(SELECT count(*) FROM ` + table + whereClause + `) as total,
