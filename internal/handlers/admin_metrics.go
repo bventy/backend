@@ -60,32 +60,65 @@ func (h *AdminMetricsHandler) GetAdminMetricsOverview(c *gin.Context) {
 func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 	ctx := c.Request.Context()
 
-	// Get dates for the last 30 days
+	// 1. Determine Earliest Data Point across all relevant tables
+	var earliestRecord time.Time
+	db.Pool.QueryRow(ctx, `
+		SELECT MIN(min_date) FROM (
+			SELECT MIN(created_at) as min_date FROM users
+			UNION ALL
+			SELECT MIN(created_at) as min_date FROM vendor_profiles
+			UNION ALL
+			SELECT MIN(created_at) as min_date FROM events
+			UNION ALL
+			SELECT MIN(created_at) as min_date FROM quote_requests
+		) as combined_dates
+	`).Scan(&earliestRecord)
+
+	// 2. Start date is either 30 days ago OR the earliest record (whichever is LATER)
+	// Actually, the user wants it "precise" and adaptive.
+	// If the platform is 5 days old, show 5 days. If 50 days old, show last 30.
 	thirtyDaysAgo := time.Now().AddDate(0, 0, -30)
+	startDate := thirtyDaysAgo
+	if !earliestRecord.IsZero() && earliestRecord.After(thirtyDaysAgo) {
+		startDate = earliestRecord
+	}
 
 	type dailyStat struct {
 		Date  string `json:"date"`
 		Count int    `json:"count"`
 	}
 
-	fetchGrowthData := func(query string, args ...interface{}) []dailyStat {
-		rows, err := db.Pool.Query(ctx, query, args...)
+	// Helper to fetch and fill missing dates
+	fetchAndFillGrowthData := func(query string, start time.Time) []dailyStat {
+		rows, err := db.Pool.Query(ctx, query, start)
 		if err != nil {
 			return []dailyStat{}
 		}
 		defer rows.Close()
 
-		var stats []dailyStat
+		dataMap := make(map[string]int)
 		for rows.Next() {
 			var date time.Time
 			var count int
 			if err := rows.Scan(&date, &count); err == nil {
-				stats = append(stats, dailyStat{Date: date.Format("2006-01-02"), Count: count})
+				dataMap[date.Format("2006-01-02")] = count
 			}
 		}
-		if stats == nil {
-			stats = []dailyStat{}
+
+		// Fill in all dates from startDate to now
+		var stats []dailyStat
+		curr := start
+		now := time.Now()
+		for !curr.After(now) {
+			dateStr := curr.Format("2006-01-02")
+			count := 0
+			if val, ok := dataMap[dateStr]; ok {
+				count = val
+			}
+			stats = append(stats, dailyStat{Date: dateStr, Count: count})
+			curr = curr.AddDate(0, 0, 1)
 		}
+
 		return stats
 	}
 
@@ -96,7 +129,7 @@ func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 		GROUP BY DATE(created_at)
 		ORDER BY DATE(created_at) ASC
 	`
-	userSignups := fetchGrowthData(userSignupsQuery, thirtyDaysAgo)
+	userGrowth := fetchAndFillGrowthData(userSignupsQuery, startDate)
 
 	vendorSignupsQuery := `
 		SELECT DATE(created_at) as date, count(*) as count
@@ -105,7 +138,7 @@ func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 		GROUP BY DATE(created_at)
 		ORDER BY DATE(created_at) ASC
 	`
-	vendorSignups := fetchGrowthData(vendorSignupsQuery, thirtyDaysAgo)
+	vendorGrowth := fetchAndFillGrowthData(vendorSignupsQuery, startDate)
 
 	eventsCreatedQuery := `
 		SELECT DATE(created_at) as date, count(*) as count
@@ -114,7 +147,7 @@ func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 		GROUP BY DATE(created_at)
 		ORDER BY DATE(created_at) ASC
 	`
-	eventsCreated := fetchGrowthData(eventsCreatedQuery, thirtyDaysAgo)
+	eventGrowth := fetchAndFillGrowthData(eventsCreatedQuery, startDate)
 
 	quotesCreatedQuery := `
 		SELECT DATE(created_at) as date, count(*) as count
@@ -123,13 +156,13 @@ func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 		GROUP BY DATE(created_at)
 		ORDER BY DATE(created_at) ASC
 	`
-	quotesCreated := fetchGrowthData(quotesCreatedQuery, thirtyDaysAgo)
+	quoteGrowth := fetchAndFillGrowthData(quotesCreatedQuery, startDate)
 
 	c.JSON(http.StatusOK, gin.H{
-		"user_signups_by_day":   userSignups,
-		"vendor_signups_by_day": vendorSignups,
-		"events_created_by_day": eventsCreated,
-		"quotes_created_by_day": quotesCreated,
+		"userGrowth":   userGrowth,
+		"vendorGrowth": vendorGrowth,
+		"eventGrowth":  eventGrowth,
+		"quoteGrowth":  quoteGrowth,
 	})
 }
 
@@ -377,9 +410,28 @@ func (h *AdminMetricsHandler) GetAdminMetricsMarketplace(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"most_viewed":     mostViewed,
-		"most_contacted":  mostContacted,
-		"top_quoted":      topQuoted,
-		"top_shortlisted": mostShortlisted,
+		"most_viewed":      mapToVendorStat(mostViewed),
+		"most_contacted":   mapToVendorStat(mostContacted),
+		"top_quoted":       mapToVendorStat(topQuoted),
+		"most_shortlisted": mapToVendorStat(mostShortlisted),
 	})
+}
+
+// Helper to map backend keys to frontend VendorStat interface (count -> value, vendor_id -> id)
+func mapToVendorStat(stats []gin.H) []gin.H {
+	for i := range stats {
+		// Map vendor_id to id
+		if vid, ok := stats[i]["vendor_id"]; ok {
+			stats[i]["id"] = vid
+		}
+
+		// Map various count keys to "value"
+		for k, v := range stats[i] {
+			if k == "view_count" || k == "contact_count" || k == "quote_count" || k == "shortlist_count" {
+				stats[i]["value"] = v
+				break
+			}
+		}
+	}
+	return stats
 }
