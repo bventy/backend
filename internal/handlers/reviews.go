@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -93,7 +92,7 @@ func (h *ReviewHandler) CheckEligibility(c *gin.Context) {
 	organizerID := userID.(string)
 	vendorID := c.Param("id")
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 
 	query := `
 		SELECT EXISTS (
@@ -127,7 +126,7 @@ func (h *ReviewHandler) GetVendorReviews(c *gin.Context) {
 	// We can also support slug if needed, but let's stick to ID for the specific route for now.
 	// Actually, the frontend often has slug, so we should support looking up by slug too.
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 
 	query := `
 		SELECT r.id, r.rating, r.comment, r.created_at, u.full_name as organizer_name, u.profile_image_url
