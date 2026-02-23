@@ -79,22 +79,23 @@ func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 		earliestRecord = now.AddDate(0, 0, -1) // Edge case: no data
 	}
 
-	// 2. Adaptive Granularity
-	// Age < 60 days -> Daily
-	// Age < 2 years -> Weekly
-	// Age >= 2 years -> Monthly (up to 3 years)
+	// 2. Adaptive Granularity & 2-Year Cap
 	daysOld := int(now.Sub(earliestRecord).Hours() / 24)
 	granularity := "day"
-	startDate := earliestRecord
 
-	if daysOld > 730 { // > 2 years
-		granularity = "month"
-		threeYearsAgo := now.AddDate(-3, 0, 0)
-		if startDate.Before(threeYearsAgo) {
-			startDate = threeYearsAgo
+	// Cap at 2 years
+	twoYearsAgo := now.AddDate(-2, 0, 0)
+	startDate := earliestRecord
+	if startDate.Before(twoYearsAgo) {
+		startDate = twoYearsAgo
+	}
+
+	if daysOld > 60 {
+		if daysOld > 730 {
+			granularity = "month"
+		} else {
+			granularity = "week"
 		}
-	} else if daysOld > 60 {
-		granularity = "week"
 	}
 
 	type metricStat struct {
@@ -102,12 +103,20 @@ func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 		Count int    `json:"count"`
 	}
 
+	type growthDetail struct {
+		Series            []metricStat `json:"series"`
+		TotalAllTime      int          `json:"total_all_time"`
+		NewPast30Days     int          `json:"new_past_30_days"`
+		NewPrevious30Days int          `json:"new_previous_30_days"`
+	}
+
 	// Helper to fetch and fill missing intervals using SQL series generation
-	fetchGrowthData := func(table string, start time.Time, gran string) []metricStat {
-		query := ""
-		switch gran {
+	fetchGrowthData := func(table string) growthDetail {
+		// 1. Fetch Series Data
+		querySeries := ""
+		switch granularity {
 		case "day":
-			query = `
+			querySeries = `
 				WITH date_range AS (
 					SELECT generate_series($1::date, CURRENT_DATE, '1 day')::date as d
 				)
@@ -118,7 +127,7 @@ func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 				ORDER BY dr.d ASC
 			`
 		case "week":
-			query = `
+			querySeries = `
 				WITH date_range AS (
 					SELECT generate_series(date_trunc('week', $1::date), date_trunc('week', CURRENT_DATE), '1 week')::date as d
 				)
@@ -129,7 +138,7 @@ func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 				ORDER BY dr.d ASC
 			`
 		case "month":
-			query = `
+			querySeries = `
 				WITH date_range AS (
 					SELECT generate_series(date_trunc('month', $1::date), date_trunc('month', CURRENT_DATE), '1 month')::date as d
 				)
@@ -141,34 +150,41 @@ func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 			`
 		}
 
-		rows, err := db.Pool.Query(ctx, query, start)
-		if err != nil {
-			return []metricStat{}
-		}
-		defer rows.Close()
-
-		var stats []metricStat
-		for rows.Next() {
-			var date string
-			var count int
-			if err := rows.Scan(&date, &count); err == nil {
-				stats = append(stats, metricStat{Date: date, Count: count})
+		var detail growthDetail
+		rows, err := db.Pool.Query(ctx, querySeries, startDate)
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var date string
+				var count int
+				if err := rows.Scan(&date, &count); err == nil {
+					detail.Series = append(detail.Series, metricStat{Date: date, Count: count})
+				}
 			}
 		}
-		return stats
+
+		// 2. Fetch Comparison Stats
+		db.Pool.QueryRow(ctx, `
+			SELECT 
+				(SELECT count(*) FROM `+table+`) as total,
+				(SELECT count(*) FROM `+table+` WHERE created_at >= NOW() - INTERVAL '30 days') as past_30,
+				(SELECT count(*) FROM `+table+` WHERE created_at >= NOW() - INTERVAL '60 days' AND created_at < NOW() - INTERVAL '30 days') as prev_30
+		`).Scan(&detail.TotalAllTime, &detail.NewPast30Days, &detail.NewPrevious30Days)
+
+		return detail
 	}
 
-	userGrowth := fetchGrowthData("users", startDate, granularity)
-	vendorGrowth := fetchGrowthData("vendor_profiles", startDate, granularity)
-	eventGrowth := fetchGrowthData("events", startDate, granularity)
-	quoteGrowth := fetchGrowthData("quote_requests", startDate, granularity)
+	userGrowth := fetchGrowthData("users")
+	vendorGrowth := fetchGrowthData("vendor_profiles")
+	eventGrowth := fetchGrowthData("events")
+	quoteGrowth := fetchGrowthData("quote_requests")
 
 	c.JSON(http.StatusOK, gin.H{
 		"userGrowth":   userGrowth,
 		"vendorGrowth": vendorGrowth,
 		"eventGrowth":  eventGrowth,
 		"quoteGrowth":  quoteGrowth,
-		"granularity":  granularity, // Tell frontend what the granularity is
+		"granularity":  granularity,
 	})
 }
 
