@@ -69,6 +69,7 @@ func RegisterRoutes(r *gin.Engine) {
 
 		// Vendor Reviews
 		protected.POST("/vendors/:id/reviews", reviewHandler.CreateReview)
+		protected.GET("/vendors/:id/reviews/eligibility", reviewHandler.CheckEligibility)
 
 		// Groups
 		protected.POST("/groups", groupHandler.CreateGroup)
