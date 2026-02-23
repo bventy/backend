@@ -99,6 +99,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	var userID, role, passwordHash, fullName string
+	query := "SELECT id, role, password_hash, full_name FROM users WHERE email = $1"
 	err := db.Pool.QueryRow(c.Request.Context(), query, req.Email).Scan(&userID, &role, &passwordHash, &fullName)
 	if err != nil {
 		if err != pgx.ErrNoRows {
