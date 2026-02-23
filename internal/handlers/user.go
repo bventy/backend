@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 
@@ -28,7 +27,7 @@ func (h *UserHandler) PromoteToAdmin(c *gin.Context) {
 	targetUserID := c.Param("id")
 	// Logic remains same
 	var currentRole string
-	err := db.Pool.QueryRow(context.Background(), "SELECT role FROM users WHERE id=$1", targetUserID).Scan(&currentRole)
+	err := db.Pool.QueryRow(c.Request.Context(), "SELECT role FROM users WHERE id=$1", targetUserID).Scan(&currentRole)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
@@ -49,7 +48,7 @@ func (h *UserHandler) PromoteToStaff(c *gin.Context) {
 	targetUserID := c.Param("id")
 	// Logic remains same
 	var currentRole string
-	err := db.Pool.QueryRow(context.Background(), "SELECT role FROM users WHERE id=$1", targetUserID).Scan(&currentRole)
+	err := db.Pool.QueryRow(c.Request.Context(), "SELECT role FROM users WHERE id=$1", targetUserID).Scan(&currentRole)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return

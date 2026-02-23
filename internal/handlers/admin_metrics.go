@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"net/http"
 	"time"
 
@@ -20,7 +19,7 @@ func (h *AdminMetricsHandler) GetAdminMetricsOverview(c *gin.Context) {
 	var totalUsers, totalGroups, totalEvents, publishedEvents, completedEvents int
 	var totalVendors, verifiedVendors, pendingVendors int
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 
 	// Users
 	db.Pool.QueryRow(ctx, "SELECT count(*) FROM users").Scan(&totalUsers)
@@ -59,7 +58,7 @@ func (h *AdminMetricsHandler) GetAdminMetricsOverview(c *gin.Context) {
 
 // 2. Growth Endpoint
 func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
-	ctx := context.Background()
+	ctx := c.Request.Context()
 
 	// Get dates for the last 30 days
 	thirtyDaysAgo := time.Now().AddDate(0, 0, -30)
@@ -136,7 +135,7 @@ func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 
 // 3. Events Endpoint
 func (h *AdminMetricsHandler) GetAdminMetricsEvents(c *gin.Context) {
-	ctx := context.Background()
+	ctx := c.Request.Context()
 
 	// Events by status (Upcoming vs Completed)
 	var eventsUpcoming, eventsCompleted int
@@ -186,7 +185,7 @@ func (h *AdminMetricsHandler) GetAdminMetricsEvents(c *gin.Context) {
 
 // 4. Vendors Endpoint
 func (h *AdminMetricsHandler) GetAdminMetricsVendors(c *gin.Context) {
-	ctx := context.Background()
+	ctx := c.Request.Context()
 
 	// Most Shortlisted Vendors
 	mostShortlistsQuery := `
@@ -258,7 +257,7 @@ func (h *AdminMetricsHandler) GetAdminMetricsVendors(c *gin.Context) {
 
 // 5. Marketplace Endpoint
 func (h *AdminMetricsHandler) GetAdminMetricsMarketplace(c *gin.Context) {
-	ctx := context.Background()
+	ctx := c.Request.Context()
 
 	// Most Viewed Vendors
 	mostViewedQuery := `
