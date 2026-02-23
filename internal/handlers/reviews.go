@@ -42,10 +42,10 @@ func (h *ReviewHandler) CreateReview(c *gin.Context) {
 		SELECT qr.id
 		FROM quote_requests qr
 		JOIN events e ON qr.event_id = e.id
-		WHERE qr.organizer_user_id = $1 
-		  AND qr.vendor_id = $2 
+		WHERE qr.organizer_user_id::text = $1 
+		  AND qr.vendor_id::text = $2 
 		  AND qr.status = 'accepted'
-		  AND (e.status = 'completed' OR e.date < NOW())
+		  AND (e.status = 'completed' OR e.event_date < NOW())
 	`
 
 	var validQuoteID string
@@ -68,7 +68,7 @@ func (h *ReviewHandler) CreateReview(c *gin.Context) {
 	query := `
 		INSERT INTO vendor_reviews (vendor_id, organizer_user_id, quote_id, rating, comment)
 		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, created_at
+		RETURNING id::text, created_at
 	`
 
 	var reviewID string

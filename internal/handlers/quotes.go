@@ -131,7 +131,7 @@ func (h *QuotesHandler) GetVendorQuotes(c *gin.Context) {
 		FROM quote_requests qr
 		JOIN events e ON qr.event_id = e.id
 		JOIN users u ON qr.organizer_user_id = u.id
-		WHERE qr.vendor_id = $1
+		WHERE qr.vendor_id::text = $1
 		ORDER BY qr.created_at DESC
 	`
 	rows, err := db.Pool.Query(ctx, query, vendorID)
@@ -209,7 +209,7 @@ func (h *QuotesHandler) GetOrganizerQuotes(c *gin.Context) {
 		FROM quote_requests qr
 		JOIN events e ON qr.event_id = e.id
 		JOIN vendor_profiles v ON qr.vendor_id = v.id
-		WHERE qr.organizer_user_id = $1
+		WHERE qr.organizer_user_id::text = $1
 		ORDER BY qr.created_at DESC
 	`
 	rows, err := db.Pool.Query(ctx, query, userID.(string))
