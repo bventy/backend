@@ -99,11 +99,10 @@ func (h *ReviewHandler) CheckEligibility(c *gin.Context) {
 			SELECT 1
 			FROM quote_requests qr
 			JOIN events e ON qr.event_id = e.id
-			WHERE qr.organizer_user_id = $1 
-			  AND qr.vendor_id = $2 
+			WHERE qr.organizer_user_id::text = $1 
+			  AND qr.vendor_id::text = $2 
 			  AND qr.status = 'accepted'
-			  -- Updated to use 'date' or NOW() check correctly if status column is missing or default
-			  AND (e.date < NOW())
+			  AND (e.status = 'completed' OR e.event_date < NOW())
 		)
 	`
 

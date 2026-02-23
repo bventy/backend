@@ -53,7 +53,7 @@ func (h *QuotesHandler) CreateQuoteRequest(c *gin.Context) {
 
 	// 1. Validate event exists & belongs to the user
 	var eventOrganizerID string
-	err := db.Pool.QueryRow(ctx, "SELECT organizer_user_id FROM events WHERE id = $1", payload.EventID).Scan(&eventOrganizerID)
+	err := db.Pool.QueryRow(ctx, "SELECT organizer_user_id FROM events WHERE id::text = $1", payload.EventID).Scan(&eventOrganizerID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Event not found"})
 		return
@@ -65,7 +65,7 @@ func (h *QuotesHandler) CreateQuoteRequest(c *gin.Context) {
 
 	// 2. Validate vendor exists
 	var vendorExists int
-	err = db.Pool.QueryRow(ctx, "SELECT 1 FROM vendor_profiles WHERE id = $1", payload.VendorID).Scan(&vendorExists)
+	err = db.Pool.QueryRow(ctx, "SELECT 1 FROM vendor_profiles WHERE id::text = $1", payload.VendorID).Scan(&vendorExists)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Vendor not found"})
 		return
@@ -117,7 +117,7 @@ func (h *QuotesHandler) GetVendorQuotes(c *gin.Context) {
 
 	// Get vendor ID from userID
 	var vendorID string
-	err := db.Pool.QueryRow(ctx, "SELECT id FROM vendor_profiles WHERE owner_user_id = $1", userID.(string)).Scan(&vendorID)
+	err := db.Pool.QueryRow(ctx, "SELECT id FROM vendor_profiles WHERE owner_user_id::text = $1", userID.(string)).Scan(&vendorID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Vendor profile not found for this user"})
 		return
