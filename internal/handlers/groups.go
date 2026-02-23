@@ -1,12 +1,12 @@
 package handlers
 
 import (
-	"context"
+	"fmt"
 	"net/http"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"github.com/bventy/backend/internal/db"
+	"github.com/gin-gonic/gin"
 )
 
 type GroupHandler struct{}
@@ -37,12 +37,12 @@ func (h *GroupHandler) CreateGroup(c *gin.Context) {
 	slug := generateSlug(req.Name, req.City)
 
 	// Transaction to create group AND add owner as member
-	tx, err := db.Pool.Begin(context.Background())
+	tx, err := db.Pool.Begin(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
 		return
 	}
-	defer tx.Rollback(context.Background())
+	defer tx.Rollback(c.Request.Context())
 
 	var groupID string
 	queryGroup := `
@@ -50,12 +50,13 @@ func (h *GroupHandler) CreateGroup(c *gin.Context) {
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id
 	`
-	err = tx.QueryRow(context.Background(), queryGroup, req.Name, slug, req.City, req.Description, userID).Scan(&groupID)
+	err = tx.QueryRow(c.Request.Context(), queryGroup, req.Name, slug, req.City, req.Description, userID).Scan(&groupID)
 	if err != nil {
 		if strings.Contains(err.Error(), "unique constraint") {
 			c.JSON(http.StatusConflict, gin.H{"error": "Group name/slug unavailable"})
 			return
 		}
+		fmt.Printf("ERROR: Failed to create group by user %s: %v\n", userID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create group"})
 		return
 	}
@@ -65,13 +66,14 @@ func (h *GroupHandler) CreateGroup(c *gin.Context) {
 		INSERT INTO group_members (group_id, user_id, role)
 		VALUES ($1, $2, 'owner')
 	`
-	_, err = tx.Exec(context.Background(), queryMember, groupID, userID)
+	_, err = tx.Exec(c.Request.Context(), queryMember, groupID, userID)
 	if err != nil {
+		fmt.Printf("ERROR: Failed to add owner member to group %s: %v\n", groupID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add owner member"})
 		return
 	}
 
-	if err := tx.Commit(context.Background()); err != nil {
+	if err := tx.Commit(c.Request.Context()); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
 		return
 	}
@@ -92,8 +94,9 @@ func (h *GroupHandler) ListMyGroups(c *gin.Context) {
 		JOIN group_members gm ON g.id = gm.group_id
 		WHERE gm.user_id = $1
 	`
-	rows, err := db.Pool.Query(context.Background(), query, userID)
+	rows, err := db.Pool.Query(c.Request.Context(), query, userID)
 	if err != nil {
+		fmt.Printf("ERROR: Failed to list groups for user %s: %v\n", userID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch groups"})
 		return
 	}

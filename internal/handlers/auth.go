@@ -1,13 +1,14 @@
 package handlers
 
 import (
-	"context"
+	"fmt"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
 	"github.com/bventy/backend/internal/auth"
 	"github.com/bventy/backend/internal/config"
 	"github.com/bventy/backend/internal/db"
+	"github.com/gin-gonic/gin"
+	pgx "github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -53,15 +54,16 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id
 	`
-	err = db.Pool.QueryRow(context.Background(), query, 
-		req.Email, 
-		string(hashedPassword), 
-		req.FullName, 
-		usernameArg, 
+	err = db.Pool.QueryRow(c.Request.Context(), query,
+		req.Email,
+		string(hashedPassword),
+		req.FullName,
+		usernameArg,
 		req.Phone,
 	).Scan(&userID)
 
 	if err != nil {
+		fmt.Printf("ERROR: Failed to signup user %s: %v\n", req.Email, err)
 		c.JSON(http.StatusConflict, gin.H{"error": "User already exists or valid constraint failed"})
 		return
 	}
@@ -97,9 +99,11 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	var userID, role, passwordHash, fullName string
-	query := `SELECT id, role, password_hash, full_name FROM users WHERE email = $1`
-	err := db.Pool.QueryRow(context.Background(), query, req.Email).Scan(&userID, &role, &passwordHash, &fullName)
+	err := db.Pool.QueryRow(c.Request.Context(), query, req.Email).Scan(&userID, &role, &passwordHash, &fullName)
 	if err != nil {
+		if err != pgx.ErrNoRows {
+			fmt.Printf("ERROR: Failed to login user %s: %v\n", req.Email, err)
+		}
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 		return
 	}

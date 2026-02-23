@@ -37,7 +37,7 @@ func (h *UserHandler) PromoteToAdmin(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Cannot change role of super_admin"})
 		return
 	}
-	_, err = db.Pool.Exec(context.Background(), "UPDATE users SET role='admin' WHERE id=$1", targetUserID)
+	_, err = db.Pool.Exec(c.Request.Context(), "UPDATE users SET role='admin' WHERE id=$1", targetUserID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to promote user"})
 		return
@@ -58,7 +58,7 @@ func (h *UserHandler) PromoteToStaff(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Cannot demote/change admin users via this endpoint"})
 		return
 	}
-	_, err = db.Pool.Exec(context.Background(), "UPDATE users SET role='staff' WHERE id=$1", targetUserID)
+	_, err = db.Pool.Exec(c.Request.Context(), "UPDATE users SET role='staff' WHERE id=$1", targetUserID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to promote user"})
 		return
@@ -78,7 +78,7 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 	var username, profileImageURL *string // Use pointer for nullable string
 
 	query := `SELECT email, role, full_name, username, profile_image_url FROM users WHERE id=$1`
-	err := db.Pool.QueryRow(context.Background(), query, userID).Scan(&email, &role, &fullName, &username, &profileImageURL)
+	err := db.Pool.QueryRow(c.Request.Context(), query, userID).Scan(&email, &role, &fullName, &username, &profileImageURL)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
@@ -87,12 +87,12 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 	// Check profiles
 	var vendorExists bool
 	var dummy int
-	err = db.Pool.QueryRow(context.Background(), "SELECT 1 FROM vendor_profiles WHERE owner_user_id=$1", userID).Scan(&dummy)
+	err = db.Pool.QueryRow(c.Request.Context(), "SELECT 1 FROM vendor_profiles WHERE owner_user_id=$1", userID).Scan(&dummy)
 	vendorExists = err == nil
 
 	// Fetch groups
 	var groups []gin.H
-	rows, err := db.Pool.Query(context.Background(), `
+	rows, err := db.Pool.Query(c.Request.Context(), `
 		SELECT g.id, g.name, g.slug, gm.role 
 		FROM groups g
 		JOIN group_members gm ON g.id = gm.group_id
@@ -152,7 +152,7 @@ func (h *UserHandler) UpdateMe(c *gin.Context) {
 	if req.Username != "" {
 		var count int
 		checkQuery := `SELECT count(*) FROM users WHERE username = $1 AND id != $2`
-		err := db.Pool.QueryRow(context.Background(), checkQuery, req.Username, userID).Scan(&count)
+		err := db.Pool.QueryRow(c.Request.Context(), checkQuery, req.Username, userID).Scan(&count)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to validate username"})
 			return
@@ -200,19 +200,10 @@ func (h *UserHandler) UpdateMe(c *gin.Context) {
 	var id, email, fullName, role string
 	var username *string // Scan into pointer for potential NULL
 
-	err := db.Pool.QueryRow(context.Background(), query,
-		userID,
-		req.FullName,
-		usernameArg,
-		phoneArg,
-		cityArg,
-		bioArg,
-		imageArg,
 	).Scan(&id, &email, &fullName, &username, &role)
 
 	if err != nil {
-		// Log the actual error for debugging
-		fmt.Printf("❌ Profile Update Error: %v\n", err)
+		fmt.Printf("ERROR: Failed to update profile for user %s: %v\n", userID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update profile"})
 		return
 	}
@@ -261,7 +252,7 @@ func (h *UserHandler) UploadProfileImage(c *gin.Context) {
 	// Clean up old image if exists (fetch old URL from DB first)
 	// We already have `profileImageURL` from previous GET logic? No, this is a POST/PUT endpoint, need to query.
 	var oldURL *string
-	err = db.Pool.QueryRow(context.TODO(), "SELECT profile_image_url FROM users WHERE id=$1", userID).Scan(&oldURL)
+	err = db.Pool.QueryRow(c.Request.Context(), "SELECT profile_image_url FROM users WHERE id=$1", userID).Scan(&oldURL)
 	if err == nil && oldURL != nil && *oldURL != "" {
 		// Try to delete old file
 		// Don't error out if delete fails, just log it (or ignore)
@@ -269,7 +260,7 @@ func (h *UserHandler) UploadProfileImage(c *gin.Context) {
 	}
 
 	// Update DB
-	_, err = db.Pool.Exec(context.TODO(), "UPDATE users SET profile_image_url=$1 WHERE id=$2", newURL, userID)
+	_, err = db.Pool.Exec(c.Request.Context(), "UPDATE users SET profile_image_url=$1 WHERE id=$2", newURL, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update profile"})
 		return

@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -60,7 +60,7 @@ func (h *EventHandler) CreateEvent(c *gin.Context) {
 
 		var isMember int
 		queryCheck := `SELECT 1 FROM group_members WHERE group_id=$1 AND user_id=$2`
-		err := db.Pool.QueryRow(context.Background(), queryCheck, organizerGroupID, userID).Scan(&isMember)
+		err := db.Pool.QueryRow(c.Request.Context(), queryCheck, organizerGroupID, userID).Scan(&isMember)
 
 		if err == pgx.ErrNoRows {
 			c.JSON(http.StatusForbidden, gin.H{"error": "You are not a member of this group"})
@@ -80,12 +80,13 @@ func (h *EventHandler) CreateEvent(c *gin.Context) {
 	`
 
 	var eventID string
-	err = db.Pool.QueryRow(context.Background(), query,
+	err = db.Pool.QueryRow(c.Request.Context(), query,
 		req.Title, req.City, req.EventType, eventDate, req.BudgetMin, req.BudgetMax, organizerUserID, organizerGroupID, req.CoverImageURL,
 	).Scan(&eventID)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create event: " + err.Error()})
+		fmt.Printf("ERROR: Failed to create event for user %s: %v\n", userID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create event"})
 		return
 	}
 
@@ -107,8 +108,9 @@ func (h *EventHandler) ListMyEvents(c *gin.Context) {
 		WHERE e.organizer_user_id = $1 OR gm.user_id IS NOT NULL
 	`
 
-	rows, err := db.Pool.Query(context.Background(), query, userID)
+	rows, err := db.Pool.Query(c.Request.Context(), query, userID)
 	if err != nil {
+		fmt.Printf("ERROR: Failed to list events for user %s: %v\n", userID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch events"})
 		return
 	}
@@ -155,7 +157,7 @@ func (h *EventHandler) GetEventById(c *gin.Context) {
 	var budgetMin, budgetMax *int
 	var coverImageURL, organizerUserID, organizerGroupID *string
 
-	err := db.Pool.QueryRow(context.Background(), query, eventID).Scan(
+	err := db.Pool.QueryRow(c.Request.Context(), query, eventID).Scan(
 		&id, &title, &city, &date, &eventType, &budgetMin, &budgetMax, &coverImageURL, &organizerUserID, &organizerGroupID,
 	)
 
@@ -164,6 +166,7 @@ func (h *EventHandler) GetEventById(c *gin.Context) {
 		return
 	}
 	if err != nil {
+		fmt.Printf("ERROR: Failed to get event %s: %v\n", eventID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 		return
 	}
@@ -175,7 +178,7 @@ func (h *EventHandler) GetEventById(c *gin.Context) {
 		JOIN vendor_profiles v ON esv.vendor_id = v.id
 		WHERE esv.event_id = $1
 	`
-	rows, err := db.Pool.Query(context.Background(), shortlistQuery, eventID)
+	rows, err := db.Pool.Query(c.Request.Context(), shortlistQuery, eventID)
 	var shortlist []gin.H = []gin.H{} // Initialize as empty slice
 	if err == nil {
 		defer rows.Close()
@@ -191,10 +194,8 @@ func (h *EventHandler) GetEventById(c *gin.Context) {
 				})
 			}
 		}
-	} else {
-		// Log error but don't fail the whole request? Or fail?
-		// For now, simple logging or ignoring if table empty is fine, but Query shouldn't fail unless DB issue.
-		// If DB issue, maybe we should return 500. But let's proceed with empty list to show event at least.
+	} else if err != pgx.ErrNoRows {
+		fmt.Printf("ERROR: Failed to fetch shortlist for event %s: %v\n", eventID, err)
 	}
 
 	event = gin.H{
@@ -226,9 +227,10 @@ func (h *EventHandler) ShortlistVendor(c *gin.Context) {
 	// So plain insert fails on duplicate.
 
 	query := `INSERT INTO event_shortlisted_vendors (event_id, vendor_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`
-	_, err := db.Pool.Exec(context.Background(), query, eventID, vendorID)
+	_, err := db.Pool.Exec(c.Request.Context(), query, eventID, vendorID)
 
 	if err != nil {
+		fmt.Printf("ERROR: Failed to shortlist vendor %s for event %s: %v\n", vendorID, eventID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to shortlist vendor"})
 		return
 	}
@@ -245,8 +247,9 @@ func (h *EventHandler) GetShortlistedVendors(c *gin.Context) {
 		JOIN vendor_profiles v ON esv.vendor_id = v.id
 		WHERE esv.event_id = $1
 	`
-	rows, err := db.Pool.Query(context.Background(), query, eventID)
+	rows, err := db.Pool.Query(c.Request.Context(), query, eventID)
 	if err != nil {
+		fmt.Printf("ERROR: Failed to list shortlisted vendors for event %s: %v\n", eventID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch shortlisted vendors"})
 		return
 	}
