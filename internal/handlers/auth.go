@@ -74,14 +74,14 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 		return
 	}
 
-	c.SetSameSite(http.SameSiteNoneMode)
+	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(
 		"bventy_session",
 		token,
 		3600*24*7, // 7 days
 		"/",
-		"",
-		true,
+		h.Config.CookieDomain,
+		h.Config.CookieSecure,
 		true,
 	)
 
@@ -132,14 +132,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	c.SetSameSite(http.SameSiteNoneMode)
+	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(
 		"bventy_session",
 		token,
 		3600*24*7, // 7 days
 		"/",
-		"",
-		true,
+		h.Config.CookieDomain,
+		h.Config.CookieSecure,
 		true,
 	)
 
@@ -152,14 +152,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {
-	c.SetSameSite(http.SameSiteNoneMode)
+	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(
 		"bventy_session",
 		"",
 		-1, // Expire immediately
 		"/",
-		"",
-		true,
+		h.Config.CookieDomain,
+		h.Config.CookieSecure,
 		true,
 	)
 

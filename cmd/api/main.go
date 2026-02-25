@@ -27,7 +27,6 @@ func main() {
 	// Step 2.5: CORS Middleware
 	r.Use(cors.New(cors.Config{
 		AllowOrigins: []string{
-			"https://bventy-web.vercel.app",
 			"https://bventy.in",
 			"https://www.bventy.in",
 			"https://auth.bventy.in",
@@ -37,7 +36,7 @@ func main() {
 			"http://localhost:3000",
 		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "Accept", "X-Requested-With"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
