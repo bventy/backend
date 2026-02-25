@@ -37,6 +37,7 @@ func RegisterRoutes(r *gin.Engine) {
 	{
 		authGroup.POST("/signup", authHandler.Signup)
 		authGroup.POST("/login", authHandler.Login)
+		authGroup.POST("/logout", authHandler.Logout)
 	}
 
 	// Protected Routes (Require Auth)
