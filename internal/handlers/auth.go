@@ -74,6 +74,16 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 		return
 	}
 
+	c.SetCookie(
+		"bventy_session",
+		token,
+		3600*24*7, // 7 days
+		"/",
+		h.Config.CookieDomain,
+		h.Config.CookieSecure,
+		true, // HttpOnly
+	)
+
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "User created successfully",
 		"token":   token,
@@ -121,10 +131,34 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	c.SetCookie(
+		"bventy_session",
+		token,
+		3600*24*7, // 7 days
+		"/",
+		h.Config.CookieDomain,
+		h.Config.CookieSecure,
+		true, // HttpOnly
+	)
+
 	c.JSON(http.StatusOK, gin.H{
 		"token":     token,
 		"role":      role,
 		"user_id":   userID,
 		"full_name": fullName,
 	})
+}
+
+func (h *AuthHandler) Logout(c *gin.Context) {
+	c.SetCookie(
+		"bventy_session",
+		"",
+		-1, // Expire immediately
+		"/",
+		h.Config.CookieDomain,
+		h.Config.CookieSecure,
+		true, // HttpOnly
+	)
+
+	c.JSON(http.StatusOK, gin.H{"message": "Logged out successfully"})
 }
