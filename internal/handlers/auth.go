@@ -74,14 +74,15 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 		return
 	}
 
+	c.SetSameSite(http.SameSiteNoneMode)
 	c.SetCookie(
 		"bventy_session",
 		token,
 		3600*24*7, // 7 days
 		"/",
-		h.Config.CookieDomain,
-		h.Config.CookieSecure,
-		true, // HttpOnly
+		"",
+		true,
+		true,
 	)
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -131,14 +132,15 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	c.SetSameSite(http.SameSiteNoneMode)
 	c.SetCookie(
 		"bventy_session",
 		token,
 		3600*24*7, // 7 days
 		"/",
-		h.Config.CookieDomain,
-		h.Config.CookieSecure,
-		true, // HttpOnly
+		"",
+		true,
+		true,
 	)
 
 	c.JSON(http.StatusOK, gin.H{
