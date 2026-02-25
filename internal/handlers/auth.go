@@ -152,14 +152,15 @@ func (h *AuthHandler) Login(c *gin.Context) {
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {
+	c.SetSameSite(http.SameSiteNoneMode)
 	c.SetCookie(
 		"bventy_session",
 		"",
 		-1, // Expire immediately
 		"/",
-		h.Config.CookieDomain,
-		h.Config.CookieSecure,
-		true, // HttpOnly
+		"",
+		true,
+		true,
 	)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Logged out successfully"})
