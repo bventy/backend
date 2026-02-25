@@ -21,6 +21,8 @@ type Config struct {
 	R2Bucket          string
 	R2Endpoint        string
 	R2PublicBaseURL   string
+	CookieDomain      string
+	CookieSecure      bool
 }
 
 func LoadConfig() *Config {
@@ -43,6 +45,8 @@ func LoadConfig() *Config {
 		R2Bucket:          getEnv("R2_BUCKET", ""),
 		R2Endpoint:        getEnv("R2_ENDPOINT", ""),
 		R2PublicBaseURL:   getEnv("R2_PUBLIC_BASE_URL", ""),
+		CookieDomain:      getEnv("COOKIE_DOMAIN", ".bventy.in"),
+		CookieSecure:      getEnv("COOKIE_SECURE", "true") == "true",
 	}
 }
 
