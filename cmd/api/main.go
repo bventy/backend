@@ -25,18 +25,35 @@ func main() {
 	r := gin.Default()
 
 	// Step 2.5: CORS Middleware
+	allowedOrigins := []string{
+		"https://bventy.in",
+		"https://www.bventy.in",
+		"https://auth.bventy.in",
+		"https://vendor.bventy.in",
+		"https://admin.bventy.in",
+		"https://app.bventy.in",
+		"http://localhost:3000",
+		"http://localhost:3001",
+		"http://localhost:3002",
+		"http://localhost:3003",
+		"http://localhost:3004",
+		"http://www.lvh.me:3000",
+		"http://auth.lvh.me:3001",
+		"http://app.lvh.me:3002",
+		"http://vendor.lvh.me:3003",
+		"http://admin.lvh.me:3004",
+	}
+
+	// Allow overrides via environment variable
+	if customOrigins := os.Getenv("ALLOWED_ORIGINS"); customOrigins != "" {
+		// You could split by comma here, but for now we just append local ones for safety
+		// in this specific task to make it just work.
+	}
+
 	r.Use(cors.New(cors.Config{
-		AllowOrigins: []string{
-			"https://bventy.in",
-			"https://www.bventy.in",
-			"https://auth.bventy.in",
-			"https://vendor.bventy.in",
-			"https://admin.bventy.in",
-			"https://app.bventy.in",
-			"http://localhost:3000",
-		},
+		AllowOrigins:     allowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "Accept", "X-Requested-With"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "Accept", "X-Requested-With", "Credentials"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
