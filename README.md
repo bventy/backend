@@ -1,6 +1,6 @@
-# Bventy
+# Bventy Backend
 
-Official Site: [bventy.com](https://bventy.com)
+Official Site: [bventy.in](https://bventy.in)
 License: [AGPL-3.0](LICENSE)
 Trademark Policy: [TRADEMARK.md](TRADEMARK.md)
 
@@ -8,7 +8,7 @@ Trademark Policy: [TRADEMARK.md](TRADEMARK.md)
 
 Bventy is a structured marketplace platform designed to improve how event organizers and service vendors connect. 
 
-In many existing platforms, communication is often chaotic and transactional. Bventy provides a framework where requirements are clarified before personal contact occurs. This ensures that both parties have the information they need to decide if they are a mutual fit. This repository contains the backend service, which acts as the core engine for the Bventy ecosystem.
+In many existing platforms, communication is often chaotic and transactional. Bventy provides a framework where requirements are clarified before personal contact occurs. This ensures that both parties have the information they need to decide if they are a mutual fit. This repository contains the backend service, which acts as the core engine for the Bventy ecosystem, powering a multi-subdomain monorepo architecture.
 
 ### Why Bventy Exists
 
@@ -88,7 +88,7 @@ graph LR
 
 ### Components
 
-*   **Backend Service**: A Go service providing the marketplace logic and REST API.
+*   **Backend Service**: A Go service providing the marketplace logic and REST API, supporting cross-subdomain authentication via secure, parent-domain cookies (`.bventy.in`).
 *   **Database**: PostgreSQL for relational data and state permanence.
 *   **R2 Storage**: Secure object storage for attachments and media.
 *   **Activity Log**: A unified layer for audit trails and platform health metrics.
