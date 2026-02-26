@@ -113,16 +113,18 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	query := "SELECT id, role, password_hash, full_name FROM users WHERE email = $1"
 	err := db.Pool.QueryRow(c.Request.Context(), query, req.Email).Scan(&userID, &role, &passwordHash, &fullName)
 	if err != nil {
-		if err != pgx.ErrNoRows {
-			fmt.Printf("ERROR: Failed to login user %s: %v\n", req.Email, err)
+		if err == pgx.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "No account found with this email address"})
+			return
 		}
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		fmt.Printf("ERROR: Failed to login user %s: %v\n", req.Email, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error. Please try again later"})
 		return
 	}
 
 	err = bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password))
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Incorrect password. Please check and try again"})
 		return
 	}
 
