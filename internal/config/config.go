@@ -23,6 +23,8 @@ type Config struct {
 	R2PublicBaseURL   string
 	CookieDomain      string
 	CookieSecure      bool
+	PostHogAPIKey     string
+	PostHogHost       string
 }
 
 func LoadConfig() *Config {
@@ -47,6 +49,8 @@ func LoadConfig() *Config {
 		R2PublicBaseURL:   getEnv("R2_PUBLIC_BASE_URL", ""),
 		CookieDomain:      getEnv("COOKIE_DOMAIN", ".bventy.in"),
 		CookieSecure:      getEnv("COOKIE_SECURE", "true") == "true",
+		PostHogAPIKey:     getEnv("POSTHOG_API_KEY", ""),
+		PostHogHost:       getEnv("POSTHOG_HOST", "https://us.i.posthog.com"),
 	}
 }
 
