@@ -9,6 +9,7 @@ import (
 	"github.com/bventy/backend/internal/config"
 	"github.com/bventy/backend/internal/db"
 	"github.com/bventy/backend/internal/routes"
+	"github.com/bventy/backend/internal/tracking"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
@@ -20,6 +21,10 @@ func main() {
 
 	// Step 1: Connect DB
 	db.Connect(cfg)
+
+	// Step 1.5: Initialize Tracking
+	tracking.Init(cfg)
+	defer tracking.Flush()
 
 	// Step 2: Start Gin server
 	r := gin.Default()
