@@ -14,12 +14,13 @@ import (
 
 type QuotesHandler struct {
 	MediaService *services.MediaService
+	EmailService *services.EmailService
 }
 
-func NewQuotesHandler() *QuotesHandler {
+func NewQuotesHandler(emailService *services.EmailService) *QuotesHandler {
 	// We might need media service here for some logic, but usually it's used in MediaHandler.
 	// For RespondToQuote, we might want to handle attachment verification if needed.
-	return &QuotesHandler{}
+	return &QuotesHandler{EmailService: emailService}
 }
 
 type CreateQuoteRequestPayload struct {
@@ -98,6 +99,19 @@ func (h *QuotesHandler) CreateQuoteRequest(c *gin.Context) {
 		VALUES ('quote', $1, 'quote_created', $2)
 	`
 	_, _ = db.Pool.Exec(ctx, insertLogQuery, quoteID, organizerID)
+
+	// 4. Notifications
+	go func() {
+		var vendorEmail string
+		_ = db.Pool.QueryRow(ctx, "SELECT u.email FROM users u JOIN vendor_profiles vp ON vp.owner_user_id = u.id WHERE vp.id::text = $1", payload.VendorID).Scan(&vendorEmail)
+		if vendorEmail != "" {
+			vars := map[string]string{
+				"vendor_name": "Vendor",
+				"event_title": "the requested event",
+			}
+			_ = h.EmailService.SendQuoteNotification(vendorEmail, "quote_requested", vars)
+		}
+	}()
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":  "Quote requested successfully",
@@ -507,6 +521,27 @@ func (h *QuotesHandler) updateQuoteStatusByOrganizer(c *gin.Context, newStatus s
 	if newStatus == "accepted" {
 		_, _ = db.Pool.Exec(ctx, `INSERT INTO platform_activity_log (entity_type, entity_id, action_type, actor_user_id) VALUES ('quote', $1, 'contact_unlocked', $2)`, quoteID, organizerID)
 	}
+
+	// Step 4: Notifications
+	go func() {
+		var recipientEmail string
+		templateKey := "quote_" + newStatus
+		if newStatus == "accepted" || newStatus == "rejected" || newStatus == "revision_requested" {
+			// Notify Vendor
+			_ = db.Pool.QueryRow(ctx, "SELECT u.email FROM users u JOIN vendor_profiles vp ON vp.owner_user_id = u.id WHERE vp.id = (SELECT vendor_id FROM quote_requests WHERE id = $1)", quoteID).Scan(&recipientEmail)
+		} else if newStatus == "responded" {
+			// Notify Organizer
+			_ = db.Pool.QueryRow(ctx, "SELECT u.email FROM users u JOIN quote_requests qr ON qr.organizer_user_id = u.id WHERE qr.id = $1", quoteID).Scan(&recipientEmail)
+		}
+
+		if recipientEmail != "" {
+			vars := map[string]string{
+				"quote_id":    quoteID,
+				"event_title": "the event",
+			}
+			_ = h.EmailService.SendQuoteNotification(recipientEmail, templateKey, vars)
+		}
+	}()
 
 	c.JSON(http.StatusOK, gin.H{"message": "Quote " + newStatus + " successfully"})
 }

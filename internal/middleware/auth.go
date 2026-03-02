@@ -132,3 +132,24 @@ func AdminOnly() gin.HandlerFunc {
 		c.Abort()
 	}
 }
+
+func EmailVerified() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID, exists := c.Get("userID")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			c.Abort()
+			return
+		}
+
+		var verified bool
+		err := db.Pool.QueryRow(context.Background(), "SELECT email_verified FROM users WHERE id = $1", userID).Scan(&verified)
+		if err != nil || !verified {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Email verification required."})
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}

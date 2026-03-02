@@ -19,7 +19,7 @@ func main() {
 	defer db.Pool.Close()
 
 	// Read migration file
-	migrationFile := "internal/db/migrations/014_schema_fixes.sql"
+	migrationFile := "internal/db/migrations/015_email_system.sql"
 	content, err := os.ReadFile(migrationFile)
 	if err != nil {
 		log.Fatalf("Failed to read migration file: %v", err)

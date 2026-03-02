@@ -25,6 +25,7 @@ type Config struct {
 	CookieSecure      bool
 	PostHogAPIKey     string
 	PostHogHost       string
+	ResendAPIKey      string
 }
 
 func LoadConfig() *Config {
@@ -51,6 +52,7 @@ func LoadConfig() *Config {
 		CookieSecure:      getEnv("COOKIE_SECURE", "true") == "true",
 		PostHogAPIKey:     getEnv("POSTHOG_API_KEY", ""),
 		PostHogHost:       getEnv("POSTHOG_HOST", "https://us.i.posthog.com"),
+		ResendAPIKey:      getEnv("RESEND_API_KEY", ""),
 	}
 }
 

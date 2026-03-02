@@ -1,23 +1,32 @@
 package handlers
 
 import (
+	"crypto/rand"
 	"fmt"
+	"log"
+	"math/big"
 	"net/http"
+	"time"
 
 	"github.com/bventy/backend/internal/auth"
 	"github.com/bventy/backend/internal/config"
 	"github.com/bventy/backend/internal/db"
+	"github.com/bventy/backend/internal/services"
 	"github.com/gin-gonic/gin"
 	pgx "github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthHandler struct {
-	Config *config.Config
+	Config       *config.Config
+	EmailService *services.EmailService
 }
 
-func NewAuthHandler(cfg *config.Config) *AuthHandler {
-	return &AuthHandler{Config: cfg}
+func NewAuthHandler(cfg *config.Config, emailService *services.EmailService) *AuthHandler {
+	return &AuthHandler{
+		Config:       cfg,
+		EmailService: emailService,
+	}
 }
 
 type SignupRequest struct {
@@ -68,26 +77,35 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 		return
 	}
 
-	token, err := auth.GenerateToken(userID, "user", h.Config)
-	if err != nil {
-		c.JSON(http.StatusCreated, gin.H{"message": "User created, please login", "user_id": userID})
+	// Step 2: Generate OTP
+	otpCode := generateOTP()
+	expiresAt := time.Now().Add(10 * time.Minute)
+
+	// Step 3: Rate limit check (1 OTP per 60s)
+	var latestCreatedAt time.Time
+	err = db.Pool.QueryRow(c.Request.Context(), "SELECT created_at FROM email_otps WHERE email = $1 AND purpose = 'verify' ORDER BY created_at DESC LIMIT 1", req.Email).Scan(&latestCreatedAt)
+	if err == nil && time.Since(latestCreatedAt) < 60*time.Second {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "Please wait 60 seconds before requesting a new code."})
 		return
 	}
 
-	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(
-		"bventy_session",
-		token,
-		3600*24*7, // 7 days
-		"/",
-		h.Config.CookieDomain,
-		h.Config.CookieSecure,
-		true,
-	)
+	otpQuery := `INSERT INTO email_otps (user_id, email, code, purpose, expires_at) VALUES ($1, $2, $3, 'verify', $4)`
+	_, err = db.Pool.Exec(c.Request.Context(), otpQuery, userID, req.Email, otpCode, expiresAt)
+	if err != nil {
+		fmt.Printf("ERROR: Failed to store OTP for user %s: %v\n", req.Email, err)
+		// We don't fail signup if OTP storage fails, but it's not ideal.
+	} else {
+		// Step 4: Send Verification Email
+		go func() {
+			err := h.EmailService.SendVerificationEmail(req.Email, otpCode)
+			if err != nil {
+				fmt.Printf("ERROR: Failed to send verification email to %s: %v\n", req.Email, err)
+			}
+		}()
+	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message": "User created successfully",
-		"token":   token,
+		"message": "User created successfully. Please verify your email.",
 		"user": gin.H{
 			"id":        userID,
 			"email":     req.Email,
@@ -95,6 +113,16 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 			"role":      "user",
 		},
 	})
+}
+
+func generateOTP() string {
+	max := big.NewInt(1000000)
+	n, err := rand.Int(rand.Reader, max)
+	if err != nil {
+		// Fallback to a less secure but functional method if crypto/rand fails
+		return fmt.Sprintf("%06d", time.Now().UnixNano()%1000000)
+	}
+	return fmt.Sprintf("%06d", n.Int64())
 }
 
 type LoginRequest struct {
@@ -110,8 +138,9 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	var userID, role, passwordHash, fullName string
-	query := "SELECT id, role, password_hash, full_name FROM users WHERE email = $1"
-	err := db.Pool.QueryRow(c.Request.Context(), query, req.Email).Scan(&userID, &role, &passwordHash, &fullName)
+	var emailVerified bool
+	query := "SELECT id, role, password_hash, full_name, email_verified FROM users WHERE email = $1"
+	err := db.Pool.QueryRow(c.Request.Context(), query, req.Email).Scan(&userID, &role, &passwordHash, &fullName, &emailVerified)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "No account found with this email address"})
@@ -146,10 +175,11 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	)
 
 	c.JSON(http.StatusOK, gin.H{
-		"token":     token,
-		"role":      role,
-		"user_id":   userID,
-		"full_name": fullName,
+		"token":          token,
+		"role":           role,
+		"user_id":        userID,
+		"full_name":      fullName,
+		"email_verified": emailVerified,
 	})
 }
 
@@ -166,4 +196,199 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Logged out successfully"})
+}
+
+type VerifyEmailRequest struct {
+	Email string `json:"email" binding:"required,email"`
+	OTP   string `json:"otp" binding:"required,len=6"`
+}
+
+func (h *AuthHandler) VerifyEmail(c *gin.Context) {
+	var req VerifyEmailRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var otpID, userID string
+	var attempts int
+	var expiresAt time.Time
+
+	otpQuery := `SELECT id, user_id, attempts, expires_at FROM email_otps WHERE email = $1 AND code = $2 AND purpose = 'verify'`
+	err := db.Pool.QueryRow(c.Request.Context(), otpQuery, req.Email, req.OTP).Scan(&otpID, &userID, &attempts, &expiresAt)
+	if err != nil {
+		// Increment attempts for that email if it exists
+		_, _ = db.Pool.Exec(c.Request.Context(), "UPDATE email_otps SET attempts = attempts + 1 WHERE email = $1 AND purpose = 'verify'", req.Email)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid verification code."})
+		return
+	}
+
+	if attempts >= 5 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Too many failed attempts. Please request a new code."})
+		return
+	}
+
+	if time.Now().After(expiresAt) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Verification code has expired."})
+		return
+	}
+
+	// Update user and delete OTP
+	tx, err := db.Pool.Begin(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		return
+	}
+	defer tx.Rollback(c.Request.Context())
+
+	_, err = tx.Exec(c.Request.Context(), "UPDATE users SET email_verified = true, email_verified_at = NOW() WHERE id = $1", userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user status"})
+		return
+	}
+
+	_, err = tx.Exec(c.Request.Context(), "DELETE FROM email_otps WHERE email = $1 AND purpose = 'verify'", req.Email)
+	if err != nil {
+		log.Printf("Warning: failed to delete used OTP: %v", err)
+	}
+
+	if err := tx.Commit(c.Request.Context()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to finalize verification"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Email verified successfully!"})
+}
+
+type RequestResetRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+func (h *AuthHandler) RequestReset(c *gin.Context) {
+	var req RequestResetRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var userID string
+	err := db.Pool.QueryRow(c.Request.Context(), "SELECT id FROM users WHERE email = $1", req.Email).Scan(&userID)
+	if err != nil {
+		// We return success even if email not found to prevent user enumeration
+		c.JSON(http.StatusOK, gin.H{"message": "If an account exists with this email, a reset code has been sent."})
+		return
+	}
+
+	// Rate limit check (1 OTP per 60s)
+	var latestCreatedAt time.Time
+	err = db.Pool.QueryRow(c.Request.Context(), "SELECT created_at FROM email_otps WHERE email = $1 AND purpose = 'reset' ORDER BY created_at DESC LIMIT 1", req.Email).Scan(&latestCreatedAt)
+	if err == nil && time.Since(latestCreatedAt) < 60*time.Second {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "Please wait 60 seconds before requesting a new code."})
+		return
+	}
+
+	otpCode := generateOTP()
+	expiresAt := time.Now().Add(15 * time.Minute)
+
+	_, err = db.Pool.Exec(c.Request.Context(), "INSERT INTO email_otps (user_id, email, code, purpose, expires_at) VALUES ($1, $2, $3, 'reset', $4)", userID, req.Email, otpCode, expiresAt)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process request"})
+		return
+	}
+
+	go func() {
+		_ = h.EmailService.SendResetEmail(req.Email, otpCode)
+	}()
+
+	c.JSON(http.StatusOK, gin.H{"message": "If an account exists with this email, a reset code has been sent."})
+}
+
+type ResetPasswordRequest struct {
+	Email       string `json:"email" binding:"required,email"`
+	OTP         string `json:"otp" binding:"required,len=6"`
+	NewPassword string `json:"new_password" binding:"required,min=6"`
+}
+
+func (h *AuthHandler) ResetPassword(c *gin.Context) {
+	var req ResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var userID string
+	var expiresAt time.Time
+	err := db.Pool.QueryRow(c.Request.Context(), "SELECT user_id, expires_at FROM email_otps WHERE email = $1 AND code = $2 AND purpose = 'reset'", req.Email, req.OTP).Scan(&userID, &expiresAt)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired reset code."})
+		return
+	}
+
+	if time.Now().After(expiresAt) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Reset code has expired."})
+		return
+	}
+
+	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+
+	tx, _ := db.Pool.Begin(c.Request.Context())
+	defer tx.Rollback(c.Request.Context())
+
+	_, err = tx.Exec(c.Request.Context(), "UPDATE users SET password_hash = $1 WHERE id = $2", string(hashedPassword), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update password"})
+		return
+	}
+
+	_, _ = tx.Exec(c.Request.Context(), "DELETE FROM email_otps WHERE email = $1 AND purpose = 'reset'", req.Email)
+
+	_ = tx.Commit(c.Request.Context())
+
+	c.JSON(http.StatusOK, gin.H{"message": "Password reset successfully!"})
+}
+
+func (h *AuthHandler) ResendVerification(c *gin.Context) {
+	var req struct {
+		Email string `json:"email" binding:"required,email"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var userID string
+	var verified bool
+	err := db.Pool.QueryRow(c.Request.Context(), "SELECT id, email_verified FROM users WHERE email = $1", req.Email).Scan(&userID, &verified)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	if verified {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Email already verified"})
+		return
+	}
+
+	// Rate limit check
+	var latestCreatedAt time.Time
+	err = db.Pool.QueryRow(c.Request.Context(), "SELECT created_at FROM email_otps WHERE email = $1 AND purpose = 'verify' ORDER BY created_at DESC LIMIT 1", req.Email).Scan(&latestCreatedAt)
+	if err == nil && time.Since(latestCreatedAt) < 60*time.Second {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "Please wait 60 seconds before requesting a new code."})
+		return
+	}
+
+	otpCode := generateOTP()
+	expiresAt := time.Now().Add(10 * time.Minute)
+
+	_, err = db.Pool.Exec(c.Request.Context(), "INSERT INTO email_otps (user_id, email, code, purpose, expires_at) VALUES ($1, $2, $3, 'verify', $4)", userID, req.Email, otpCode, expiresAt)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate code"})
+		return
+	}
+
+	go func() {
+		_ = h.EmailService.SendVerificationEmail(req.Email, otpCode)
+	}()
+
+	c.JSON(http.StatusOK, gin.H{"message": "Verification code resent successfully!"})
 }

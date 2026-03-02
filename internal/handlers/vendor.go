@@ -16,13 +16,15 @@ import (
 type VendorHandler struct {
 	Config       *config.Config
 	MediaService *services.MediaService
+	EmailService *services.EmailService
 }
 
-func NewVendorHandler(cfg *config.Config) *VendorHandler {
+func NewVendorHandler(cfg *config.Config, emailService *services.EmailService) *VendorHandler {
 	svc, _ := services.NewMediaService(cfg)
 	return &VendorHandler{
 		Config:       cfg,
 		MediaService: svc,
+		EmailService: emailService,
 	}
 }
 

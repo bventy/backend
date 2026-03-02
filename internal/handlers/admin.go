@@ -129,12 +129,6 @@ func (h *AdminHandler) GetUsers(c *gin.Context) {
 }
 
 func (h *AdminHandler) UpdateUserRole(c *gin.Context) {
-	// Only super_admin can access this (Middleware check should be applied in routes)
-	// Additional check here just in case, or delegate to middleware.
-	// Plan said "Only super_admin can change roles", so we'll rely on route middleware
-	// BUT since this might be a generic route, let's enforce double check or assume middleware handles it.
-	// The requirement "Include: ... Validate role"
-
 	userID := c.Param("id")
 	var input struct {
 		Role string `json:"role" binding:"required"`
@@ -159,6 +153,101 @@ func (h *AdminHandler) UpdateUserRole(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "User role updated successfully"})
+}
+
+// Email & Template Management
+func (h *AdminHandler) GetEmailTemplates(c *gin.Context) {
+	query := `SELECT template_key, subject, body_html, is_enabled FROM email_templates ORDER BY template_key ASC`
+	rows, err := db.Pool.Query(context.Background(), query)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch email templates"})
+		return
+	}
+	defer rows.Close()
+
+	var templates []gin.H
+	for rows.Next() {
+		var key, subject, body string
+		var isEnabled bool
+		if err := rows.Scan(&key, &subject, &body, &isEnabled); err != nil {
+			continue
+		}
+		templates = append(templates, gin.H{
+			"template_key": key,
+			"subject":      subject,
+			"body_html":    body,
+			"is_enabled":   isEnabled,
+		})
+	}
+	c.JSON(http.StatusOK, templates)
+}
+
+func (h *AdminHandler) UpdateEmailTemplate(c *gin.Context) {
+	key := c.Param("key")
+	var input struct {
+		Subject   string `json:"subject"`
+		BodyHTML  string `json:"body_html"`
+		IsEnabled *bool  `json:"is_enabled"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
+		return
+	}
+
+	query := `
+		UPDATE email_templates 
+		SET subject = COALESCE(NULLIF($2, ''), subject),
+		    body_html = COALESCE(NULLIF($3, ''), body_html),
+		    is_enabled = COALESCE($4, is_enabled),
+		    updated_at = NOW()
+		WHERE template_key = $1
+		RETURNING template_key
+	`
+	var updatedKey string
+	err := db.Pool.QueryRow(context.Background(), query, key, input.Subject, input.BodyHTML, input.IsEnabled).Scan(&updatedKey)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Template not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Template updated successfully"})
+}
+
+func (h *AdminHandler) GetPlatformSettings(c *gin.Context) {
+	rows, err := db.Pool.Query(context.Background(), "SELECT key, value FROM platform_settings")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch settings"})
+		return
+	}
+	defer rows.Close()
+
+	settings := make(map[string]string)
+	for rows.Next() {
+		var key, val string
+		_ = rows.Scan(&key, &val)
+		settings[key] = val
+	}
+	c.JSON(http.StatusOK, settings)
+}
+
+func (h *AdminHandler) UpdatePlatformSetting(c *gin.Context) {
+	var input struct {
+		Key   string `json:"key" binding:"required"`
+		Value string `json:"value" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
+		return
+	}
+
+	query := `INSERT INTO platform_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`
+	_, err := db.Pool.Exec(context.Background(), query, input.Key, input.Value)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update setting"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Setting updated successfully"})
 }
 
 // Stats (Legacy mapping for dashboard stats)

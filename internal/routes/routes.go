@@ -4,6 +4,7 @@ import (
 	"github.com/bventy/backend/internal/config"
 	"github.com/bventy/backend/internal/handlers"
 	"github.com/bventy/backend/internal/middleware"
+	"github.com/bventy/backend/internal/services"
 	"github.com/gin-gonic/gin"
 )
 
@@ -11,15 +12,18 @@ func RegisterRoutes(r *gin.Engine) {
 
 	cfg := config.LoadConfig()
 
+	// Services
+	emailService := services.NewEmailService(cfg.ResendAPIKey)
+
 	// Handlers
-	authHandler := handlers.NewAuthHandler(cfg)
-	vendorHandler := handlers.NewVendorHandler(cfg)
+	authHandler := handlers.NewAuthHandler(cfg, emailService)
+	vendorHandler := handlers.NewVendorHandler(cfg, emailService)
 	adminHandler := handlers.NewAdminHandler()
 	userHandler := handlers.NewUserHandler(cfg)
 	groupHandler := handlers.NewGroupHandler()
 	eventHandler := handlers.NewEventHandler()
 	mediaHandler := handlers.NewMediaHandler(cfg)
-	quotesHandler := handlers.NewQuotesHandler()
+	quotesHandler := handlers.NewQuotesHandler(emailService)
 	trackHandler := handlers.NewTrackHandler()
 	reviewHandler := handlers.NewReviewHandler()
 
@@ -38,6 +42,10 @@ func RegisterRoutes(r *gin.Engine) {
 		authGroup.POST("/signup", authHandler.Signup)
 		authGroup.POST("/login", authHandler.Login)
 		authGroup.POST("/logout", authHandler.Logout)
+		authGroup.POST("/verify-email", authHandler.VerifyEmail)
+		authGroup.POST("/request-reset", authHandler.RequestReset)
+		authGroup.POST("/reset-password", authHandler.ResetPassword)
+		authGroup.POST("/resend-verification", authHandler.ResendVerification)
 		authGroup.GET("/debug", handlers.DebugCookies)
 	}
 
@@ -58,8 +66,21 @@ func RegisterRoutes(r *gin.Engine) {
 		// Tracking
 		protected.POST("/track/activity", trackHandler.TrackActivity)
 
-		// Vendor Onboarding & Management
-		protected.POST("/vendor/onboard", vendorHandler.OnboardVendor)
+		// Verification Gate (Restricted Actions)
+		verified := protected.Group("/")
+		verified.Use(middleware.EmailVerified())
+		{
+			// Vendor Onboarding
+			verified.POST("/vendor/onboard", vendorHandler.OnboardVendor)
+
+			// Quote Creation
+			verified.POST("/quotes/request", quotesHandler.CreateQuoteRequest)
+
+			// Quote Response
+			verified.PATCH("/quotes/respond/:id", quotesHandler.RespondToQuote)
+		}
+
+		// Vendor profiles & Management (Non-gated parts)
 		protected.GET("/vendor/me", vendorHandler.GetMyProfile)
 		protected.PUT("/vendor/me", vendorHandler.UpdateVendor)
 
@@ -84,11 +105,9 @@ func RegisterRoutes(r *gin.Engine) {
 		protected.POST("/events/:id/shortlist/:vendorID", eventHandler.ShortlistVendor)
 		protected.GET("/events/:id/shortlist", eventHandler.GetShortlistedVendors)
 
-		// Quotes
-		protected.POST("/quotes/request", quotesHandler.CreateQuoteRequest)
+		// Quotes (Non-gated or already gated above)
 		protected.GET("/quotes/vendor", quotesHandler.GetVendorQuotes)
 		protected.GET("/quotes/organizer", quotesHandler.GetOrganizerQuotes)
-		protected.PATCH("/quotes/respond/:id", quotesHandler.RespondToQuote)
 		protected.PATCH("/quotes/accept/:id", quotesHandler.AcceptQuote)
 		protected.PATCH("/quotes/reject/:id", quotesHandler.RejectQuote)
 		protected.PATCH("/quotes/revision/:id", quotesHandler.RequestRevision)
@@ -121,9 +140,13 @@ func RegisterRoutes(r *gin.Engine) {
 			adminRoutes.GET("/users", adminHandler.GetUsers)
 
 			// Role Management (Super Admin Only)
-			// We can use a specific route group or just checking the role in handler (which we added middleware for in route)
-			// Better to be explicit in route definition if possible.
 			adminRoutes.PATCH("/users/:id/role", middleware.RequireRole("super_admin"), adminHandler.UpdateUserRole)
+
+			// Email & Template Management
+			adminRoutes.GET("/email/templates", adminHandler.GetEmailTemplates)
+			adminRoutes.PUT("/email/templates/:key", adminHandler.UpdateEmailTemplate)
+			adminRoutes.GET("/email/settings", adminHandler.GetPlatformSettings)
+			adminRoutes.PUT("/email/settings", adminHandler.UpdatePlatformSetting)
 		}
 
 		// Super Admin Routes (Legacy/Specific)
