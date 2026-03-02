@@ -461,31 +461,23 @@ func (h *QuotesHandler) updateQuoteStatusByOrganizer(c *gin.Context, newStatus s
 
 	timestampColumn := ""
 	if newStatus == "accepted" {
-		// Calculate expiry: event_date + 15 days or now + 30 days
+		// Policy: Earlier of (event_date + 15 days) OR (NOW + 30 days)
 		var eventDate *time.Time
 		err := db.Pool.QueryRow(ctx, "SELECT event_date FROM events WHERE id = (SELECT event_id FROM quote_requests WHERE id = $1)", quoteID).Scan(&eventDate)
 
-		var expiry time.Time
-		if err == nil && eventDate != nil {
-			// Policy: 15 days after event completion
-			expiry = eventDate.AddDate(0, 0, 15)
-			// But if that's already in the past or very soon, give at least 15 days from NOW to facilitate contact?
-			// The user said "after 15 days of event completion, access will be revoked".
-			// But they also said "OR 30 days from vendor approval".
-			// Let's use the LATER of the two to be safe and helpful.
-			approvalExpiry := time.Now().AddDate(0, 0, 30)
-			if approvalExpiry.After(expiry) {
-				expiry = approvalExpiry
-			}
+		approvalExpiry := time.Now().AddDate(0, 0, 30)
+		expiry := approvalExpiry
 
-			updateQuery := `UPDATE quote_requests SET accepted_at = NOW(), contact_unlocked_at = NOW(), contact_expires_at = $1, status = $2, updated_at = NOW() WHERE id = $3`
-			_, err = db.Pool.Exec(ctx, updateQuery, expiry, newStatus, quoteID)
-		} else {
-			// Fallback: 30 days from now if event date unknown
-			expiry = time.Now().AddDate(0, 0, 30)
-			updateQuery := `UPDATE quote_requests SET accepted_at = NOW(), contact_unlocked_at = NOW(), contact_expires_at = $1, status = $2, updated_at = NOW() WHERE id = $3`
-			_, err = db.Pool.Exec(ctx, updateQuery, expiry, newStatus, quoteID)
+		if err == nil && eventDate != nil {
+			eventCompletionExpiry := eventDate.AddDate(0, 0, 15)
+			// Choose the EARLIER (lower value) of the two as requested
+			if eventCompletionExpiry.Before(approvalExpiry) {
+				expiry = eventCompletionExpiry
+			}
 		}
+
+		updateQuery := `UPDATE quote_requests SET accepted_at = NOW(), contact_unlocked_at = NOW(), contact_expires_at = $1, status = $2, updated_at = NOW() WHERE id = $3`
+		_, err = db.Pool.Exec(ctx, updateQuery, expiry, newStatus, quoteID)
 	} else {
 		switch newStatus {
 		case "rejected":
@@ -528,33 +520,49 @@ func (h *QuotesHandler) lazyUpdateQuotesAndEvents(ctx context.Context, userID st
 	`
 	_, _ = db.Pool.Exec(ctx, updateEventsQuery, userID)
 
-	// 2. Auto-archive quotes: contact_expires_at < NOW()
-	// We do this for both involved parties. If userID is organizer, check their quotes.
-	// If userID is vendor, check quotes for their vendor_id.
-
+	// 2. Auto-archive quotes based on the multi-stage policy
 	// Check if user is vendor first
 	var vendorID string
 	_ = db.Pool.QueryRow(ctx, "SELECT id FROM vendor_profiles WHERE owner_user_id = $1", userID).Scan(&vendorID)
 
-	archiveQuotesQuery := `
-		UPDATE quote_requests 
-		SET status = 'archived', archived_at = NOW() 
-		WHERE (organizer_user_id = $1 OR vendor_id = $2) 
-		AND status = 'accepted' 
-		AND contact_expires_at < NOW() 
-		AND archived_at IS NULL
-		RETURNING id
-	`
-	rows, err := db.Pool.Query(ctx, archiveQuotesQuery, userID, vendorID)
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var quoteID string
-			if err := rows.Scan(&quoteID); err == nil {
-				// Log expiry for analytics
-				queryLog := `INSERT INTO platform_activity_log (user_id, event_type, metadata, created_at) VALUES ($1, 'contact_expired', $2, NOW())`
-				metadata := fmt.Sprintf(`{"quote_id": "%s", "triggered_by": "%s"}`, quoteID, userID)
-				_, _ = db.Pool.Exec(ctx, queryLog, userID, metadata)
+	archiveQueries := []struct {
+		Query string
+		Args  []interface{}
+	}{
+		{
+			// Accepted Quotes: Archive 5 days after contact access expires
+			Query: `UPDATE quote_requests SET status = 'archived', archived_at = NOW() 
+					WHERE (organizer_user_id = $1 OR vendor_id = $2) AND status = 'accepted' 
+					AND contact_expires_at + INTERVAL '5 days' < NOW() AND archived_at IS NULL RETURNING id`,
+			Args: []interface{}{userID, vendorID},
+		},
+		{
+			// Pending Quotes: Archive 30 days after creation (Vendor response window)
+			Query: `UPDATE quote_requests SET status = 'archived', archived_at = NOW() 
+					WHERE (organizer_user_id = $1 OR vendor_id = $2) AND status = 'pending' 
+					AND created_at + INTERVAL '30 days' < NOW() AND archived_at IS NULL RETURNING id`,
+			Args: []interface{}{userID, vendorID},
+		},
+		{
+			// Other Non-Approved (responded, revision_requested, rejected): Archive 20 days after last update
+			Query: `UPDATE quote_requests SET status = 'archived', archived_at = NOW() 
+					WHERE (organizer_user_id = $1 OR vendor_id = $2) AND status IN ('responded', 'revision_requested', 'rejected') 
+					AND updated_at + INTERVAL '20 days' < NOW() AND archived_at IS NULL RETURNING id`,
+			Args: []interface{}{userID, vendorID},
+		},
+	}
+
+	for _, aq := range archiveQueries {
+		rows, err := db.Pool.Query(ctx, aq.Query, aq.Args...)
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var quoteID string
+				if err := rows.Scan(&quoteID); err == nil {
+					queryLog := `INSERT INTO platform_activity_log (entity_type, entity_id, action_type, actor_user_id, metadata) VALUES ('quote', $1, 'quote_archived', $2, $3)`
+					metadata := fmt.Sprintf(`{"triggered_by": "lazy_cleanup", "user_context": "%s"}`, userID)
+					_, _ = db.Pool.Exec(ctx, queryLog, quoteID, userID, metadata)
+				}
 			}
 		}
 	}
