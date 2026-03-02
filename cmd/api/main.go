@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/bventy/backend/internal/config"
@@ -51,8 +52,11 @@ func main() {
 
 	// Allow overrides via environment variable
 	if customOrigins := os.Getenv("ALLOWED_ORIGINS"); customOrigins != "" {
-		// You could split by comma here, but for now we just append local ones for safety
-		// in this specific task to make it just work.
+		origins := strings.Split(customOrigins, ",")
+		for i := range origins {
+			origins[i] = strings.TrimSpace(origins[i])
+		}
+		allowedOrigins = append(allowedOrigins, origins...)
 	}
 
 	r.Use(cors.New(cors.Config{
