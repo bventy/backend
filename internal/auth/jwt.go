@@ -4,8 +4,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/bventy/backend/internal/config"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 type Claims struct {
@@ -15,7 +15,7 @@ type Claims struct {
 }
 
 func GenerateToken(userID string, role string, cfg *config.Config) (string, error) {
-	expirationTime := time.Now().Add(24 * time.Hour)
+	expirationTime := time.Now().Add(7 * 24 * time.Hour)
 	claims := &Claims{
 		UserID: userID,
 		Role:   role,
