@@ -360,12 +360,12 @@ func (h *QuotesHandler) GetQuoteContact(c *gin.Context) {
 
 	// 1. Get quote details and verify authorization
 	var status, organizerID, vendorID, eventID string
-	var archivedAt *string
-	var expiresAt *string
+	var archivedAt, expiresAt interface{}
 	query := `SELECT status, organizer_user_id, vendor_id, event_id, archived_at, contact_expires_at FROM quote_requests WHERE id = $1`
 	err := db.Pool.QueryRow(ctx, query, quoteID).Scan(&status, &organizerID, &vendorID, &eventID, &archivedAt, &expiresAt)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Quote not found"})
+		log.Printf("ERROR: Failed to fetch quote contact info (%s): %v", quoteID, err)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Quote not found or internal error"})
 		return
 	}
 
