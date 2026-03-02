@@ -369,19 +369,7 @@ func (h *QuotesHandler) GetQuoteContact(c *gin.Context) {
 		return
 	}
 
-	// 2. Check if event is completed
-	var eventStatus string
-	err = db.Pool.QueryRow(ctx, "SELECT status FROM events WHERE id = $1", eventID).Scan(&eventStatus)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Event not found"})
-		return
-	}
-	if eventStatus == "completed" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Event is completed. Contact access revoked."})
-		return
-	}
-
-	// 3. Authorization: Only the involved organizer or the vendor can access this
+	// 2. Authorization: Only the involved organizer or the vendor can access this
 	isOrganizer := organizerID == userID.(string)
 
 	// Check if user is the vendor
