@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/bventy/backend/internal/db"
 	"github.com/bventy/backend/internal/services"
@@ -461,17 +462,29 @@ func (h *QuotesHandler) updateQuoteStatusByOrganizer(c *gin.Context, newStatus s
 	timestampColumn := ""
 	if newStatus == "accepted" {
 		// Calculate expiry: event_date + 15 days or now + 30 days
-		var eventDate *string
+		var eventDate *time.Time
 		err := db.Pool.QueryRow(ctx, "SELECT event_date FROM events WHERE id = (SELECT event_id FROM quote_requests WHERE id = $1)", quoteID).Scan(&eventDate)
+
+		var expiry time.Time
 		if err == nil && eventDate != nil {
-			timestampColumn = "accepted_at = NOW(), contact_unlocked_at = NOW(), contact_expires_at = ($1::date + INTERVAL '15 days'),"
-			// Overwrite the query template below
-			updateQuery := `UPDATE quote_requests SET accepted_at = NOW(), contact_unlocked_at = NOW(), contact_expires_at = ($1::date + INTERVAL '15 days'), status = $2, updated_at = NOW() WHERE id = $3`
-			_, err = db.Pool.Exec(ctx, updateQuery, *eventDate, newStatus, quoteID)
+			// Policy: 15 days after event completion
+			expiry = eventDate.AddDate(0, 0, 15)
+			// But if that's already in the past or very soon, give at least 15 days from NOW to facilitate contact?
+			// The user said "after 15 days of event completion, access will be revoked".
+			// But they also said "OR 30 days from vendor approval".
+			// Let's use the LATER of the two to be safe and helpful.
+			approvalExpiry := time.Now().AddDate(0, 0, 30)
+			if approvalExpiry.After(expiry) {
+				expiry = approvalExpiry
+			}
+
+			updateQuery := `UPDATE quote_requests SET accepted_at = NOW(), contact_unlocked_at = NOW(), contact_expires_at = $1, status = $2, updated_at = NOW() WHERE id = $3`
+			_, err = db.Pool.Exec(ctx, updateQuery, expiry, newStatus, quoteID)
 		} else {
-			timestampColumn = "accepted_at = NOW(), contact_unlocked_at = NOW(), contact_expires_at = (NOW() + INTERVAL '30 days'),"
-			updateQuery := `UPDATE quote_requests SET accepted_at = NOW(), contact_unlocked_at = NOW(), contact_expires_at = (NOW() + INTERVAL '30 days'), status = $1, updated_at = NOW() WHERE id = $2`
-			_, err = db.Pool.Exec(ctx, updateQuery, newStatus, quoteID)
+			// Fallback: 30 days from now if event date unknown
+			expiry = time.Now().AddDate(0, 0, 30)
+			updateQuery := `UPDATE quote_requests SET accepted_at = NOW(), contact_unlocked_at = NOW(), contact_expires_at = $1, status = $2, updated_at = NOW() WHERE id = $3`
+			_, err = db.Pool.Exec(ctx, updateQuery, expiry, newStatus, quoteID)
 		}
 	} else {
 		switch newStatus {
