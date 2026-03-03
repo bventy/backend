@@ -403,31 +403,31 @@ func (h *AuthHandler) ResendVerification(c *gin.Context) {
 	}
 
 	// Smart Rate Limiting (Exponential Backoff)
-	// 0 resends (after signup): 2m wait
-	// 1 resend: 5m wait
-	// 2 resends: 15m wait
-	// 3+ resends: 60m wait
+	// 0 resends (after signup): 5m wait (immediately stricter)
+	// 1 resend: 15m wait
+	// 2 resends: 60m wait
+	// 3+ resends: 180m wait (3 hours)
 	var waitTime time.Duration
 	switch attempts {
 	case 0:
-		waitTime = 2 * time.Minute
-	case 1:
 		waitTime = 5 * time.Minute
-	case 2:
+	case 1:
 		waitTime = 15 * time.Minute
-	default:
+	case 2:
 		waitTime = 60 * time.Minute
+	default:
+		waitTime = 180 * time.Minute
 	}
 
-	// Daily Limit Check (Max 10 per 24h)
-	if attempts >= 10 {
+	// Daily Limit Check (Max 5 per 24h - Stricter)
+	if attempts >= 5 {
 		// If last attempt was > 24h ago, we can reset the counter
 		if latestCreatedAt != nil && time.Since(*latestCreatedAt) > 24*time.Hour {
 			_, _ = db.Pool.Exec(c.Request.Context(), "UPDATE users SET email_verification_attempts = 0 WHERE id = $1", userID)
 			attempts = 0
-			waitTime = 2 * time.Minute // Reset wait time too
+			waitTime = 5 * time.Minute // Reset wait time too
 		} else {
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": "Daily verification limit reached. Please try again tomorrow."})
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "Daily verification limit reached. Please try again in 24 hours."})
 			return
 		}
 	}
