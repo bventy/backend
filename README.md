@@ -100,7 +100,7 @@ graph LR
 We maintain detailed documentation for every aspect of the platform.
 
 ### API Reference
-- [Full API Specification](docs/API.md) — A detailed, human-first guide to the Bventy engine.
+- [Full API Specification](docs/API.md): A detailed guide to the Bventy engine.
 
 ### Architecture
 - [System Overview](docs/architecture/overview.md)

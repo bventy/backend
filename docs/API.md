@@ -1,6 +1,6 @@
 # Bventy API Reference
 
-Welcome to the heart of the Bventy platform. This documentation is designed for developers, partners, and our community to understand how the Bventy engine operates. We believe that transparency is the foundation of trust, and we’ve built our API to reflect the same human-first principles that guide our marketplace.
+Welcome to the Bventy API. This guide is for developers and partners looking to understand how the Bventy engine works. Our API follows the same principles of transparency and deliberate communication that define our marketplace.
 
 ---
 
@@ -21,7 +21,7 @@ All API requests should be directed to:
 `https://api.bventy.in` (Production)
 
 ### Authentication
-Bventy uses a dual-layered authentication system to ensure maximum security and cross-subdomain compatibility.
+Bventy uses a dual-layered authentication system for security and cross-subdomain compatibility.
 
 -   **Session Cookies**: Our primary method for web clients. Secure, HttpOnly, and SameSite cookies allow you to stay logged in across `app.bventy.in`, `vendor.bventy.in`, and `auth.bventy.in`.
 -   **JWT Tokens**: For stateless requests, we provide a standard JSON Web Token (JWT) in the `Authorization` header.
@@ -38,7 +38,7 @@ Every journey on Bventy starts with an identity. We keep profile management simp
 
 ### Get My Profile
 `GET /me`
-Retrieves the current user's identity, roles, and a list of groups they belong to.
+Get your identity, roles, and group memberships.
 -   **Response**: Returns your full name, username, email verification status, and active group memberships.
 
 ### Update Profile
@@ -49,14 +49,14 @@ Update your personal details.
 
 ### Profile Image
 `POST /users/profile-image`
-Upload a profile picture. We automatically compress and optimize images for the best performance.
+Upload a profile picture. Images are compressed and optimized automatically.
 -   **Payload**: `multipart/form-data` with a `file` field.
 
 ---
 
 ## 🎨 Vendor Ecosystem
 
-Bventy is home to a curated collection of event experts. Each vendor profile is a window into their craft.
+Bventy connects event organizers with verified vendors. Each profile showcases a vendor's expertise and portfolio.
 
 ### Explore Vendors
 `GET /vendors`
@@ -70,7 +70,7 @@ Start your journey as a Bventy vendor.
 -   **Status**: New profiles enter a `pending` state for moderation to maintain platform quality.
 
 ### Gallery & Portfolio
-Showcase your best work with high-resolution imagery and documents.
+Share your work using high-quality images and documents.
 -   **Add Image**: `POST /vendors/:id/gallery` (Max 25 images)
 -   **Add Portfolio**: `POST /vendors/:id/portfolio` (PDF only, max 20 files)
 
@@ -78,7 +78,7 @@ Showcase your best work with high-resolution imagery and documents.
 
 ## 📅 Event Coordination
 
-Organizers use Bventy to bring their vision to life. Events are the "north star" for every quote request.
+Events are the foundation for every quote request.
 
 ### Create an Event
 `POST /events`
@@ -94,7 +94,7 @@ Keep track of the vendors you love for a specific event.
 
 ## 📜 The Quote Lifecycle
 
-This is the core engine of Bventy. It’s a staged workflow designed to move from discovery to fulfillment with total clarity.
+The quote lifecycle is a structured workflow that moves from discovery to fulfillment.
 
 ### 1. Request a Quote
 `POST /quotes/request`
@@ -109,15 +109,15 @@ Vendors review the requirements and provide a formal proposal.
 
 ### 3. The Decision
 Organizers have three clear choices:
--   **Accept**: `PATCH /quotes/accept/:id` — This **unlocks contact details** for both parties.
--   **Revision**: `PATCH /quotes/revision/:id` — Request a change or clarification.
--   **Reject**: `PATCH /quotes/reject/:id` — Respectfully decline the proposal.
+-   **Accept**: `PATCH /quotes/accept/:id`. This unlocks contact details for both parties.
+-   **Revision**: `PATCH /quotes/revision/:id`. Request a change or clarification.
+-   **Reject**: `PATCH /quotes/reject/:id`. Decline the proposal.
 
 ### 4. Unlocking Contact
 `GET /quotes/:id/contact` (Accepted Status Only)
-Once a quote is accepted, the "gate" opens.
--   **Response**: Returns the verified phone, email, and WhatsApp links for both the organizer and the vendor.
--   **Smart Expiry**: This access is temporary. It typically expires 15 days after the event date to protect long-term privacy.
+Once a quote is accepted, contact details are shared.
+-   **Response**: Returns verified phone, email, and WhatsApp links.
+-   **Expiry**: Access is temporary and typically expires 15 days after the event.
 
 ---
 
@@ -150,7 +150,7 @@ We use standard HTTP status codes to communicate clearly.
 | **403** | Forbidden | You don't have permission for this specific action. |
 | **404** | Not Found | The resource you're looking for has moved or doesn't exist. |
 | **409** | Conflict | Something already exists (like a duplicate email). |
-| **500** | Server Error | Something went wrong on our end. We're on it. |
+| **500** | Server Error | An internal error occurred. |
 
 ---
 
@@ -161,4 +161,4 @@ We use standard HTTP status codes to communicate clearly.
 -   **Encryption**: All data is served over TLS (HTTPS).
 
 ---
-© 2026 Bventy. Building the future of event coordination, one clear connection at a time.
+© 2026 Bventy.
