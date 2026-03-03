@@ -39,4 +39,26 @@ func Connect(cfg *config.Config) {
 	}
 
 	fmt.Println("✅ Connected to PostgreSQL successfully!")
+	InitSchema() // Trigger one-time migration
+}
+
+func InitSchema() {
+	query := `
+    CREATE TABLE IF NOT EXISTS "email_logs" (
+        "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        "to_email" TEXT NOT NULL,
+        "subject" TEXT NOT NULL,
+        "body_html" TEXT NOT NULL,
+        "template_key" VARCHAR(50),
+        "sent_at" TIMESTAMP WITH TIME ZONE DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_email_logs_sent_at ON email_logs(sent_at);
+    CREATE INDEX IF NOT EXISTS idx_email_logs_to_email ON email_logs(to_email);
+    `
+	_, err := Pool.Exec(context.Background(), query)
+	if err != nil {
+		log.Printf("⚠️ Temp migration failed: %v", err)
+	} else {
+		fmt.Println("✅ Temp migration (email_logs) successful!")
+	}
 }
