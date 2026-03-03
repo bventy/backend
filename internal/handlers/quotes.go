@@ -100,7 +100,35 @@ func (h *QuotesHandler) CreateQuoteRequest(c *gin.Context) {
 	`
 	_, _ = db.Pool.Exec(ctx, insertLogQuery, quoteID, organizerID)
 
-	// 4. Notifications
+	// 5. Create Thread & Initial Quote System Card
+	go func(qID, vID, oID string, payload CreateQuoteRequestPayload) {
+		bgCtx := context.Background()
+
+		// Insert Conversation
+		var convID string
+		err := db.Pool.QueryRow(bgCtx, `
+			INSERT INTO conversations (quote_id, vendor_id, organizer_user_id, chat_locked) 
+			VALUES ($1, $2, $3, true) RETURNING id
+		`, qID, vID, oID).Scan(&convID)
+
+		if err == nil {
+			// Insert System Message
+			sysPayload := map[string]interface{}{
+				"event_id":             payload.EventID,
+				"budget_range":         payload.BudgetRange,
+				"special_requirements": payload.SpecialRequirements,
+				"deadline":             payload.Deadline,
+			}
+			_, _ = db.Pool.Exec(bgCtx, `
+				INSERT INTO messages (conversation_id, sender_user_id, message_type, system_payload)
+				VALUES ($1, $2, 'quote_card', $3)
+			`, convID, oID, sysPayload)
+		} else {
+			log.Printf("ERROR: Failed to create conversation for quote %s: %v", qID, err)
+		}
+	}(quoteID, payload.VendorID, organizerID, payload)
+
+	// 6. Notifications
 	go func() {
 		var vendorEmail string
 		_ = db.Pool.QueryRow(ctx, "SELECT u.email FROM users u JOIN vendor_profiles vp ON vp.owner_user_id = u.id WHERE vp.id::text = $1", payload.VendorID).Scan(&vendorEmail)
@@ -520,6 +548,16 @@ func (h *QuotesHandler) updateQuoteStatusByOrganizer(c *gin.Context, newStatus s
 
 	if newStatus == "accepted" {
 		_, _ = db.Pool.Exec(ctx, `INSERT INTO platform_activity_log (entity_type, entity_id, action_type, actor_user_id) VALUES ('quote', $1, 'contact_unlocked', $2)`, quoteID, organizerID)
+
+		// Unlock Chat
+		go func(qID string) {
+			bgCtx := context.Background()
+			var convID string
+			err := db.Pool.QueryRow(bgCtx, `UPDATE conversations SET chat_locked = false WHERE quote_id = $1 RETURNING id`, qID).Scan(&convID)
+			if err == nil {
+				_, _ = db.Pool.Exec(bgCtx, `INSERT INTO messages (conversation_id, message_type, body) VALUES ($1, 'system', 'Chat unlocked. You can now communicate directly.')`, convID)
+			}
+		}(quoteID)
 	}
 
 	// Step 4: Notifications
@@ -597,6 +635,16 @@ func (h *QuotesHandler) lazyUpdateQuotesAndEvents(ctx context.Context, userID st
 					queryLog := `INSERT INTO platform_activity_log (entity_type, entity_id, action_type, actor_user_id, metadata) VALUES ('quote', $1, 'quote_archived', $2, $3)`
 					metadata := fmt.Sprintf(`{"triggered_by": "lazy_cleanup", "user_context": "%s"}`, userID)
 					_, _ = db.Pool.Exec(ctx, queryLog, quoteID, userID, metadata)
+
+					// Lock Chat & Notify Expiry
+					go func(qID string) {
+						bgCtx := context.Background()
+						var convID string
+						err := db.Pool.QueryRow(bgCtx, `UPDATE conversations SET chat_locked = true WHERE quote_id = $1 RETURNING id`, qID).Scan(&convID)
+						if err == nil {
+							_, _ = db.Pool.Exec(bgCtx, `INSERT INTO messages (conversation_id, message_type, body) VALUES ($1, 'system', 'Chat access expired.')`, convID)
+						}
+					}(quoteID)
 				}
 			}
 		}

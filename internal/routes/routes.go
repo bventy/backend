@@ -1,10 +1,13 @@
 package routes
 
 import (
+	"net/http"
+
 	"github.com/bventy/backend/internal/config"
 	"github.com/bventy/backend/internal/handlers"
 	"github.com/bventy/backend/internal/middleware"
 	"github.com/bventy/backend/internal/services"
+	"github.com/bventy/backend/internal/websocket"
 	"github.com/gin-gonic/gin"
 )
 
@@ -14,6 +17,10 @@ func RegisterRoutes(r *gin.Engine) {
 
 	// Services
 	emailService := services.NewEmailService(cfg.ResendAPIKey, cfg.FromEmail)
+
+	// WebSocket Hub
+	hub := websocket.NewHub()
+	go hub.Run()
 
 	// Handlers
 	authHandler := handlers.NewAuthHandler(cfg, emailService)
@@ -28,6 +35,7 @@ func RegisterRoutes(r *gin.Engine) {
 	calendarHandler := handlers.NewCalendarHandler()
 	trackHandler := handlers.NewTrackHandler()
 	reviewHandler := handlers.NewReviewHandler()
+	messagingHandler := handlers.NewMessagingHandler(hub)
 
 	// Public Routes
 	r.GET("/health", handlers.HealthCheck)
@@ -120,6 +128,24 @@ func RegisterRoutes(r *gin.Engine) {
 		protected.PATCH("/quotes/reject/:id", quotesHandler.RejectQuote)
 		protected.PATCH("/quotes/revision/:id", quotesHandler.RequestRevision)
 		protected.GET("/quotes/:id/contact", quotesHandler.GetQuoteContact)
+
+		// Messaging
+		protected.GET("/conversations", messagingHandler.GetConversations)
+		protected.GET("/conversations/:id/messages", messagingHandler.GetMessages)
+		protected.POST("/conversations/:id/messages", messagingHandler.SendMessage)
+		protected.PATCH("/conversations/:id/read", messagingHandler.MarkAsRead)
+
+		// WebSocket connection logic (authentication usually via cookies since wss:// cannot send standard bearer headers from browser natively, but middleware.AuthMiddleware reads from cookies in Bventy)
+		protected.GET("/ws/conversations/:id", func(c *gin.Context) {
+			userID, exists := c.Get("userID")
+			if !exists {
+				// Should not happen due to AuthMiddleware, but safeguard
+				c.Status(http.StatusUnauthorized)
+				return
+			}
+			conversationID := c.Param("id")
+			websocket.ServeWs(hub, c.Writer, c.Request, userID.(string), conversationID)
+		})
 
 		// Admin Routes (Admin & Super Admin)
 		adminRoutes := protected.Group("/admin")
