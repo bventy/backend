@@ -148,6 +148,7 @@ func RegisterRoutes(r *gin.Engine) {
 			adminRoutes.PUT("/email/templates/:key", adminHandler.UpdateEmailTemplate)
 			adminRoutes.GET("/email/settings", adminHandler.GetPlatformSettings)
 			adminRoutes.PUT("/email/settings", adminHandler.UpdatePlatformSetting)
+			adminRoutes.GET("/email/logs", adminHandler.GetEmailLogs)
 		}
 
 		// Super Admin Routes (Legacy/Specific)

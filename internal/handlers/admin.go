@@ -292,6 +292,7 @@ func (h *AdminHandler) GetPlatformSettings(c *gin.Context) {
 	c.JSON(http.StatusOK, settings)
 }
 
+// Platform Settings (Existing)
 func (h *AdminHandler) UpdatePlatformSetting(c *gin.Context) {
 	var input struct {
 		Key   string `json:"key" binding:"required"`
@@ -310,6 +311,50 @@ func (h *AdminHandler) UpdatePlatformSetting(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Setting updated successfully"})
+}
+
+// Email Logs
+func (h *AdminHandler) GetEmailLogs(c *gin.Context) {
+	// 1. Automatic 30-day cleanup
+	_, err := db.Pool.Exec(context.Background(), "DELETE FROM email_logs WHERE sent_at < NOW() - INTERVAL '30 days'")
+	if err != nil {
+		log.Printf("Warning: failed to cleanup old email logs: %v", err)
+	}
+
+	// 2. Fetch logs
+	query := `SELECT id, to_email, subject, body_html, template_key, sent_at FROM email_logs ORDER BY sent_at DESC LIMIT 500`
+	rows, err := db.Pool.Query(context.Background(), query)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch email logs"})
+		return
+	}
+	defer rows.Close()
+
+	var logs []gin.H
+	for rows.Next() {
+		var id, to, subject, body string
+		var templateKey *string
+		var sentAt interface{}
+
+		if err := rows.Scan(&id, &to, &subject, &body, &templateKey, &sentAt); err != nil {
+			continue
+		}
+
+		logs = append(logs, gin.H{
+			"id":           id,
+			"to_email":     to,
+			"subject":      subject,
+			"body_html":    body,
+			"template_key": templateKey,
+			"sent_at":      sentAt,
+		})
+	}
+
+	if logs == nil {
+		logs = []gin.H{}
+	}
+
+	c.JSON(http.StatusOK, logs)
 }
 
 // Stats (Legacy mapping for dashboard stats)

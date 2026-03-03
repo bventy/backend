@@ -67,6 +67,16 @@ func (s *EmailService) sendEmail(to string, templateKey string, variables map[st
 		return fmt.Errorf("failed to send email via Resend: %v", err)
 	}
 
+	// 4. Log the email asynchronously
+	go func(to, subject, body, key string) {
+		logCtx := context.Background()
+		logQuery := `INSERT INTO email_logs (to_email, subject, body_html, template_key) VALUES ($1, $2, $3, $4)`
+		_, err := db.Pool.Exec(logCtx, logQuery, to, subject, body, key)
+		if err != nil {
+			log.Printf("Warning: failed to log email to %s: %v", to, err)
+		}
+	}(to, subject, bodyHTML, templateKey)
+
 	return nil
 }
 
