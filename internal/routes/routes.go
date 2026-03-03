@@ -138,10 +138,10 @@ func RegisterRoutes(r *gin.Engine) {
 
 			// User Management
 			adminRoutes.GET("/users", adminHandler.GetUsers)
+			adminRoutes.DELETE("/users/:id", adminHandler.DeleteUser)
 
 			// Role Management (Super Admin Only)
 			adminRoutes.PATCH("/users/:id/role", middleware.RequireRole("super_admin"), adminHandler.UpdateUserRole)
-			adminRoutes.DELETE("/users/:id", middleware.RequireRole("super_admin"), adminHandler.DeleteUser)
 
 			// Email & Template Management
 			adminRoutes.GET("/email/templates", adminHandler.GetEmailTemplates)
