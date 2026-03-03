@@ -274,7 +274,7 @@ func (h *MessagingHandler) MarkAsRead(c *gin.Context) {
 	// Insert into message_reads for all unread messages in this conversation not sent by me
 	query := `
 		INSERT INTO message_reads (message_id, user_id)
-		SELECT m.id, $1 
+		SELECT m.id, $1::uuid
 		FROM messages m
 		WHERE m.conversation_id::text = $2 
 		AND m.sender_user_id::text != $1

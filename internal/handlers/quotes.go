@@ -350,7 +350,11 @@ func (h *QuotesHandler) RespondToQuote(c *gin.Context) {
 		return
 	}
 	if quoteVendorID != vendorID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "You are not authorized to respond to this quote"})
+		log.Printf("AUTHORIZATION FAILURE: Vendor profile ID (%s) does not match Quote Request vendor_id (%s) for quote %s", vendorID, quoteVendorID, quoteID)
+		c.JSON(http.StatusForbidden, gin.H{
+			"error":   "You are not authorized to respond to this quote",
+			"details": fmt.Sprintf("Vendor ID mismatch. Profile: %s, Quote: %s", vendorID, quoteVendorID),
+		})
 		return
 	}
 
