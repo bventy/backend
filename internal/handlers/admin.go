@@ -155,6 +155,27 @@ func (h *AdminHandler) UpdateUserRole(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "User role updated successfully"})
 }
 
+func (h *AdminHandler) DeleteUser(c *gin.Context) {
+	userID := c.Param("id")
+
+	// Prevent self-deletion
+	currentUserID := c.GetString("user_id")
+	if userID == currentUserID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "You cannot delete your own account"})
+		return
+	}
+
+	query := `DELETE FROM users WHERE id = $1 RETURNING id`
+	var id string
+	err := db.Pool.QueryRow(context.Background(), query, userID).Scan(&id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "User deleted successfully"})
+}
+
 // Email & Template Management
 func (h *AdminHandler) GetEmailTemplates(c *gin.Context) {
 	query := `SELECT template_key, subject, body_html, is_enabled, from_name, from_email FROM email_templates ORDER BY template_key ASC`
