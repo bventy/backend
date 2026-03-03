@@ -13,7 +13,7 @@ func RegisterRoutes(r *gin.Engine) {
 	cfg := config.LoadConfig()
 
 	// Services
-	emailService := services.NewEmailService(cfg.ResendAPIKey)
+	emailService := services.NewEmailService(cfg.ResendAPIKey, cfg.FromEmail)
 
 	// Handlers
 	authHandler := handlers.NewAuthHandler(cfg, emailService)

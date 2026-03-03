@@ -26,6 +26,7 @@ type Config struct {
 	PostHogAPIKey     string
 	PostHogHost       string
 	ResendAPIKey      string
+	FromEmail         string
 }
 
 func LoadConfig() *Config {
@@ -53,6 +54,7 @@ func LoadConfig() *Config {
 		PostHogAPIKey:     getEnv("POSTHOG_API_KEY", ""),
 		PostHogHost:       getEnv("POSTHOG_HOST", "https://us.i.posthog.com"),
 		ResendAPIKey:      getEnv("RESEND_API_KEY", ""),
+		FromEmail:         getEnv("FROM_EMAIL", "notifications@bventy.in"),
 	}
 }
 

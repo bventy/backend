@@ -11,12 +11,13 @@ import (
 )
 
 type EmailService struct {
-	client *resend.Client
+	client    *resend.Client
+	fromEmail string
 }
 
-func NewEmailService(apiKey string) *EmailService {
+func NewEmailService(apiKey string, fromEmail string) *EmailService {
 	client := resend.NewClient(apiKey)
-	return &EmailService{client: client}
+	return &EmailService{client: client, fromEmail: fromEmail}
 }
 
 func (s *EmailService) sendEmail(to string, templateKey string, variables map[string]string) error {
@@ -45,7 +46,7 @@ func (s *EmailService) sendEmail(to string, templateKey string, variables map[st
 
 	// 3. Send via Resend
 	params := &resend.SendEmailRequest{
-		From:    "Bventy <no-reply@bventy.in>", // User said domain is verified
+		From:    s.fromEmail,
 		To:      []string{to},
 		Subject: subject,
 		Html:    bodyHTML,
