@@ -57,11 +57,11 @@ func (h *MessagingHandler) GetConversations(c *gin.Context) {
 
 	var conversations []gin.H
 	for rows.Next() {
-		var id, quoteID, vID, oID, eventTitle, vendorName, quoteStatus string
-		var organizerName *string
+		var id, quoteID, vID, eventTitle, vendorName, quoteStatus string
+		var organizerName, oID *string
 		var locked bool
 		var lastMessageAt, createdAt interface{}
-		var unreadCount int
+		var unreadCount int64
 
 		if err := rows.Scan(&id, &quoteID, &vID, &oID, &locked, &lastMessageAt, &createdAt, &eventTitle, &vendorName, &organizerName, &unreadCount, &quoteStatus); err != nil {
 			log.Printf("ERROR SCANNING CONVERSATION: %v", err)
