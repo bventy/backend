@@ -24,10 +24,10 @@ func (s *EmailService) sendEmail(to string, templateKey string, variables map[st
 	ctx := context.Background()
 
 	// 1. Fetch template from DB
-	var subject, bodyHTML string
+	var subject, bodyHTML, fromName, fromEmail string
 	var isEnabled bool
-	query := `SELECT subject, body_html, is_enabled FROM email_templates WHERE template_key = $1`
-	err := db.Pool.QueryRow(ctx, query, templateKey).Scan(&subject, &bodyHTML, &isEnabled)
+	query := `SELECT subject, body_html, is_enabled, from_name, from_email FROM email_templates WHERE template_key = $1`
+	err := db.Pool.QueryRow(ctx, query, templateKey).Scan(&subject, &bodyHTML, &isEnabled, &fromName, &fromEmail)
 	if err != nil {
 		return fmt.Errorf("failed to load template %s: %v", templateKey, err)
 	}
@@ -35,6 +35,16 @@ func (s *EmailService) sendEmail(to string, templateKey string, variables map[st
 	if !isEnabled {
 		log.Printf("Template %s is disabled, skipping send", templateKey)
 		return nil
+	}
+
+	// Use template-specific sender if available, fallback to service default
+	finalFrom := s.fromEmail
+	if fromEmail != "" {
+		if fromName != "" {
+			finalFrom = fmt.Sprintf("%s <%s>", fromName, fromEmail)
+		} else {
+			finalFrom = fromEmail
+		}
 	}
 
 	// 2. Replace variables
@@ -46,7 +56,7 @@ func (s *EmailService) sendEmail(to string, templateKey string, variables map[st
 
 	// 3. Send via Resend
 	params := &resend.SendEmailRequest{
-		From:    s.fromEmail,
+		From:    finalFrom,
 		To:      []string{to},
 		Subject: subject,
 		Html:    bodyHTML,

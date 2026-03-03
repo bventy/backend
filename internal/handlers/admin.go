@@ -157,7 +157,7 @@ func (h *AdminHandler) UpdateUserRole(c *gin.Context) {
 
 // Email & Template Management
 func (h *AdminHandler) GetEmailTemplates(c *gin.Context) {
-	query := `SELECT template_key, subject, body_html, is_enabled FROM email_templates ORDER BY template_key ASC`
+	query := `SELECT template_key, subject, body_html, is_enabled, from_name, from_email FROM email_templates ORDER BY template_key ASC`
 	rows, err := db.Pool.Query(context.Background(), query)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch email templates"})
@@ -169,7 +169,8 @@ func (h *AdminHandler) GetEmailTemplates(c *gin.Context) {
 	for rows.Next() {
 		var key, subject, body string
 		var isEnabled bool
-		if err := rows.Scan(&key, &subject, &body, &isEnabled); err != nil {
+		var fromName, fromEmail *string
+		if err := rows.Scan(&key, &subject, &body, &isEnabled, &fromName, &fromEmail); err != nil {
 			continue
 		}
 		templates = append(templates, gin.H{
@@ -177,6 +178,8 @@ func (h *AdminHandler) GetEmailTemplates(c *gin.Context) {
 			"subject":      subject,
 			"body_html":    body,
 			"is_enabled":   isEnabled,
+			"from_name":    fromName,
+			"from_email":   fromEmail,
 		})
 	}
 	c.JSON(http.StatusOK, templates)
@@ -188,6 +191,8 @@ func (h *AdminHandler) UpdateEmailTemplate(c *gin.Context) {
 		Subject   string `json:"subject"`
 		BodyHTML  string `json:"body_html"`
 		IsEnabled *bool  `json:"is_enabled"`
+		FromName  string `json:"from_name"`
+		FromEmail string `json:"from_email"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
@@ -199,12 +204,14 @@ func (h *AdminHandler) UpdateEmailTemplate(c *gin.Context) {
 		SET subject = COALESCE(NULLIF($2, ''), subject),
 		    body_html = COALESCE(NULLIF($3, ''), body_html),
 		    is_enabled = COALESCE($4, is_enabled),
+		    from_name = COALESCE(NULLIF($5, ''), from_name),
+		    from_email = COALESCE(NULLIF($6, ''), from_email),
 		    updated_at = NOW()
 		WHERE template_key = $1
 		RETURNING template_key
 	`
 	var updatedKey string
-	err := db.Pool.QueryRow(context.Background(), query, key, input.Subject, input.BodyHTML, input.IsEnabled).Scan(&updatedKey)
+	err := db.Pool.QueryRow(context.Background(), query, key, input.Subject, input.BodyHTML, input.IsEnabled, input.FromName, input.FromEmail).Scan(&updatedKey)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Template not found"})
 		return
