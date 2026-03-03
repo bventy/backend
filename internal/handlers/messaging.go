@@ -106,9 +106,10 @@ func (h *MessagingHandler) GetMessages(c *gin.Context) {
 	_ = db.Pool.QueryRow(ctx, "SELECT id FROM vendor_profiles WHERE owner_user_id = $1", userID.(string)).Scan(&vendorID)
 
 	var hasAccess int
-	authQuery := `SELECT 1 FROM conversations WHERE id = $1 AND (organizer_user_id = $2 OR vendor_id = $3)`
+	authQuery := `SELECT 1 FROM conversations WHERE id::text = $1 AND (organizer_user_id::text = $2 OR vendor_id::text = $3)`
 	if err := db.Pool.QueryRow(ctx, authQuery, conversationID, userID.(string), vendorID).Scan(&hasAccess); err != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": "You do not have access to this conversation"})
+		log.Printf("ACCESS DENIED for user %s to conv %s: %v", userID, conversationID, err)
+		c.JSON(http.StatusForbidden, gin.H{"error": "You do not have access to this conversation", "details": err.Error()})
 		return
 	}
 
@@ -200,11 +201,12 @@ func (h *MessagingHandler) SendMessage(c *gin.Context) {
 		SELECT c.chat_locked, qr.status 
 		FROM conversations c 
 		JOIN quote_requests qr ON c.quote_id = qr.id 
-		WHERE c.id = $1 AND (c.organizer_user_id = $2 OR c.vendor_id = $3)
+		WHERE c.id::text = $1 AND (c.organizer_user_id::text = $2 OR c.vendor_id::text = $3)
 	`
 	err := db.Pool.QueryRow(ctx, checkQuery, conversationID, userID.(string), vendorID).Scan(&chatLocked, &quoteStatus)
 	if err != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied or conversation not found"})
+		log.Printf("SEND DENIED for user %s to conv %s: %v", userID, conversationID, err)
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied or conversation not found", "details": err.Error()})
 		return
 	}
 
@@ -274,8 +276,8 @@ func (h *MessagingHandler) MarkAsRead(c *gin.Context) {
 		INSERT INTO message_reads (message_id, user_id)
 		SELECT m.id, $1 
 		FROM messages m
-		WHERE m.conversation_id = $2 
-		AND m.sender_user_id != $1
+		WHERE m.conversation_id::text = $2 
+		AND m.sender_user_id::text != $1
 		ON CONFLICT (message_id, user_id) DO NOTHING
 	`
 	_, err := db.Pool.Exec(ctx, query, userID.(string), conversationID)
