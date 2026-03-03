@@ -162,5 +162,13 @@ Our current focus includes:
 
 This roadmap is subject to change based on community needs. No specific timelines are promised.
 
+
+---
+
+## Bventy Ecosystem
+
+- [Frontend](https://github.com/bventy/web): The Next.js platform shell and shared UI components.
+- [Mobile](https://github.com/bventy/mobile): Native mobile experiences for Bventy.
+
 ---
 © 2026 Bventy.
