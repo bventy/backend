@@ -329,7 +329,7 @@ func (h *AdminHandler) GetEmailLogs(c *gin.Context) {
 	rows, err := db.Pool.Query(ctx, query)
 	if err != nil {
 		log.Printf("Error: failed to query email logs: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch email logs: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch email logs"})
 		return
 	}
 	defer rows.Close()
