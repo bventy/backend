@@ -75,9 +75,10 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 	// Fetch user details
 	var email, role, fullName string
 	var username, profileImageURL *string // Use pointer for nullable string
+	var emailVerified bool
 
-	query := `SELECT email, role, full_name, username, profile_image_url FROM users WHERE id=$1`
-	err := db.Pool.QueryRow(c.Request.Context(), query, userID).Scan(&email, &role, &fullName, &username, &profileImageURL)
+	query := `SELECT email, role, full_name, username, profile_image_url, email_verified FROM users WHERE id=$1`
+	err := db.Pool.QueryRow(c.Request.Context(), query, userID).Scan(&email, &role, &fullName, &username, &profileImageURL, &emailVerified)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
@@ -116,6 +117,7 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 		"username":              username,        // Returns string or null
 		"profile_image_url":     profileImageURL, // Returns string or null
 		"role":                  role,
+		"email_verified":        emailVerified,
 		"vendor_profile_exists": vendorExists,
 		"groups":                groups,
 	})
@@ -193,10 +195,11 @@ func (h *UserHandler) UpdateMe(c *gin.Context) {
 		UPDATE users 
 		SET full_name = $2, username = $3, phone = $4, city = $5, bio = $6, profile_image_url = $7
 		WHERE id = $1
-		RETURNING id, email, full_name, username, role
+		RETURNING id, email, full_name, username, role, email_verified
 	`
 
 	var id, email, fullName, role string
+	var emailVerified bool
 	var username *string // Scan into pointer for potential NULL
 
 	err := db.Pool.QueryRow(c.Request.Context(), query,
@@ -207,7 +210,7 @@ func (h *UserHandler) UpdateMe(c *gin.Context) {
 		cityArg,
 		bioArg,
 		imageArg,
-	).Scan(&id, &email, &fullName, &username, &role)
+	).Scan(&id, &email, &fullName, &username, &role, &emailVerified)
 
 	if err != nil {
 		fmt.Printf("ERROR: Failed to update profile for user %s: %v\n", userID, err)
@@ -216,12 +219,13 @@ func (h *UserHandler) UpdateMe(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"id":        id,
-		"email":     email,
-		"full_name": fullName,
-		"username":  username,
-		"role":      role,
-		"message":   "Profile updated successfully",
+		"id":             id,
+		"email":          email,
+		"full_name":      fullName,
+		"username":       username,
+		"role":           role,
+		"email_verified": emailVerified,
+		"message":        "Profile updated successfully",
 	})
 }
 

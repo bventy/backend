@@ -246,7 +246,7 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 	}
 	defer tx.Rollback(c.Request.Context())
 
-	_, err = tx.Exec(c.Request.Context(), "UPDATE users SET email_verified = true, email_verified_at = NOW() WHERE id = $1", userID)
+	_, err = tx.Exec(c.Request.Context(), "UPDATE users SET email_verified = true, email_verified_at = NOW(), email_verification_attempts = 0 WHERE id = $1", userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user status"})
 		return
@@ -382,7 +382,16 @@ func (h *AuthHandler) ResendVerification(c *gin.Context) {
 
 	var userID string
 	var verified bool
-	err := db.Pool.QueryRow(c.Request.Context(), "SELECT id, email_verified FROM users WHERE email = $1", req.Email).Scan(&userID, &verified)
+	var attempts int
+	var latestCreatedAt *time.Time
+
+	// Fetch user status and latest OTP in one query
+	query := `
+		SELECT u.id, u.email_verified, u.email_verification_attempts,
+		(SELECT created_at FROM email_otps WHERE email = $1 AND purpose = 'verify' ORDER BY created_at DESC LIMIT 1)
+		FROM users u WHERE u.email = $1
+	`
+	err := db.Pool.QueryRow(c.Request.Context(), query, req.Email).Scan(&userID, &verified, &attempts, &latestCreatedAt)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
@@ -393,20 +402,75 @@ func (h *AuthHandler) ResendVerification(c *gin.Context) {
 		return
 	}
 
-	// Rate limit check
-	var latestCreatedAt time.Time
-	err = db.Pool.QueryRow(c.Request.Context(), "SELECT created_at FROM email_otps WHERE email = $1 AND purpose = 'verify' ORDER BY created_at DESC LIMIT 1", req.Email).Scan(&latestCreatedAt)
-	if err == nil && time.Since(latestCreatedAt) < 60*time.Second {
-		c.JSON(http.StatusTooManyRequests, gin.H{"error": "Please wait 60 seconds before requesting a new code."})
+	// Smart Rate Limiting (Exponential Backoff)
+	// 0 resends (after signup): 2m wait
+	// 1 resend: 5m wait
+	// 2 resends: 15m wait
+	// 3+ resends: 60m wait
+	var waitTime time.Duration
+	switch attempts {
+	case 0:
+		waitTime = 2 * time.Minute
+	case 1:
+		waitTime = 5 * time.Minute
+	case 2:
+		waitTime = 15 * time.Minute
+	default:
+		waitTime = 60 * time.Minute
+	}
+
+	// Daily Limit Check (Max 10 per 24h)
+	if attempts >= 10 {
+		// If last attempt was > 24h ago, we can reset the counter
+		if latestCreatedAt != nil && time.Since(*latestCreatedAt) > 24*time.Hour {
+			_, _ = db.Pool.Exec(c.Request.Context(), "UPDATE users SET email_verification_attempts = 0 WHERE id = $1", userID)
+			attempts = 0
+			waitTime = 2 * time.Minute // Reset wait time too
+		} else {
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "Daily verification limit reached. Please try again tomorrow."})
+			return
+		}
+	}
+
+	if latestCreatedAt != nil && time.Since(*latestCreatedAt) < waitTime {
+		remaining := waitTime - time.Since(*latestCreatedAt)
+		c.JSON(http.StatusTooManyRequests, gin.H{
+			"error":       fmt.Sprintf("Please wait %d seconds before requesting a new code.", int(remaining.Seconds())),
+			"retry_after": int(remaining.Seconds()),
+		})
 		return
 	}
 
 	otpCode := generateOTP()
 	expiresAt := time.Now().Add(10 * time.Minute)
 
-	_, err = db.Pool.Exec(c.Request.Context(), "INSERT INTO email_otps (user_id, email, code, purpose, expires_at) VALUES ($1, $2, $3, 'verify', $4)", userID, req.Email, otpCode, expiresAt)
+	// Update OTP and increment user's attempt counter
+	tx, err := db.Pool.Begin(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process request"})
+		return
+	}
+	defer tx.Rollback(c.Request.Context())
+
+	// Delete old OTPs for this purpose
+	_, _ = tx.Exec(c.Request.Context(), "DELETE FROM email_otps WHERE email = $1 AND purpose = 'verify'", req.Email)
+
+	// Insert new OTP
+	_, err = tx.Exec(c.Request.Context(), "INSERT INTO email_otps (user_id, email, code, purpose, expires_at) VALUES ($1, $2, $3, 'verify', $4)", userID, req.Email, otpCode, expiresAt)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate code"})
+		return
+	}
+
+	// Increment user's verification attempts
+	_, err = tx.Exec(c.Request.Context(), "UPDATE users SET email_verification_attempts = email_verification_attempts + 1 WHERE id = $1", userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update attempt counter"})
+		return
+	}
+
+	if err := tx.Commit(c.Request.Context()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to finalize request"})
 		return
 	}
 
