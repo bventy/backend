@@ -37,14 +37,14 @@ func (h *MessagingHandler) GetConversations(c *gin.Context) {
 			e.title as event_title, 
 			v.business_name as vendor_name,
 			u.full_name as organizer_name,
-			(SELECT COUNT(*) FROM messages m LEFT JOIN message_reads mr ON m.id = mr.message_id AND mr.user_id::text = $1 WHERE m.conversation_id = c.id AND mr.read_at IS NULL AND m.sender_user_id::text != $1) as unread_count,
+			(SELECT COUNT(*) FROM messages m LEFT JOIN message_reads mr ON m.id = mr.message_id AND mr.user_id = $1::uuid WHERE m.conversation_id = c.id AND mr.read_at IS NULL AND m.sender_user_id != $1::uuid) as unread_count,
             qr.status as quote_status
 		FROM conversations c
 		JOIN quote_requests qr ON c.quote_id = qr.id
 		JOIN events e ON qr.event_id = e.id
 		JOIN vendor_profiles v ON c.vendor_id = v.id
 		LEFT JOIN users u ON c.organizer_user_id = u.id
-		WHERE (c.organizer_user_id::text = $1 OR v.owner_user_id::text = $1)
+		WHERE (c.organizer_user_id = $1::uuid OR v.owner_user_id = $1::uuid)
 		ORDER BY c.last_message_at DESC NULLS LAST, c.created_at DESC
 	`
 
@@ -106,7 +106,7 @@ func (h *MessagingHandler) GetMessages(c *gin.Context) {
 	_ = db.Pool.QueryRow(ctx, "SELECT id FROM vendor_profiles WHERE owner_user_id = $1", userID.(string)).Scan(&vendorID)
 
 	var hasAccess int
-	authQuery := `SELECT 1 FROM conversations WHERE id::text = $1 AND (organizer_user_id::text = $2 OR vendor_id::text = $3)`
+	authQuery := `SELECT 1 FROM conversations WHERE id = $1::uuid AND (organizer_user_id = $2::uuid OR vendor_id = $3::uuid)`
 	if err := db.Pool.QueryRow(ctx, authQuery, conversationID, userID.(string), vendorID).Scan(&hasAccess); err != nil {
 		log.Printf("ACCESS DENIED for user %s to conv %s: %v", userID, conversationID, err)
 		c.JSON(http.StatusForbidden, gin.H{"error": "You do not have access to this conversation", "details": err.Error()})
@@ -201,7 +201,7 @@ func (h *MessagingHandler) SendMessage(c *gin.Context) {
 		SELECT c.chat_locked, qr.status 
 		FROM conversations c 
 		JOIN quote_requests qr ON c.quote_id = qr.id 
-		WHERE c.id::text = $1 AND (c.organizer_user_id::text = $2 OR c.vendor_id::text = $3)
+		WHERE c.id = $1::uuid AND (c.organizer_user_id = $2::uuid OR c.vendor_id = $3::uuid)
 	`
 	err := db.Pool.QueryRow(ctx, checkQuery, conversationID, userID.(string), vendorID).Scan(&chatLocked, &quoteStatus)
 	if err != nil {
@@ -276,13 +276,14 @@ func (h *MessagingHandler) MarkAsRead(c *gin.Context) {
 		INSERT INTO message_reads (message_id, user_id)
 		SELECT m.id, $1::uuid
 		FROM messages m
-		WHERE m.conversation_id::text = $2 
-		AND m.sender_user_id::text != $1
+		WHERE m.conversation_id = $2::uuid 
+		AND m.sender_user_id != $1::uuid
 		ON CONFLICT (message_id, user_id) DO NOTHING
 	`
 	_, err := db.Pool.Exec(ctx, query, userID.(string), conversationID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to mark messages as read"})
+		log.Printf("ERROR MARKING READ: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to mark messages as read", "details": err.Error()})
 		return
 	}
 

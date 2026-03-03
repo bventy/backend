@@ -336,7 +336,7 @@ func (h *QuotesHandler) RespondToQuote(c *gin.Context) {
 
 	// Verify vendor owns this quote
 	var vendorID string
-	err := db.Pool.QueryRow(ctx, "SELECT id FROM vendor_profiles WHERE owner_user_id::text = $1", userID.(string)).Scan(&vendorID)
+	err := db.Pool.QueryRow(ctx, "SELECT id FROM vendor_profiles WHERE owner_user_id = $1::uuid", userID.(string)).Scan(&vendorID)
 	if err != nil {
 		log.Printf("DEBUG: respondToQuote - owner_user_id mismatch or no profile for user %s: %v", userID, err)
 		c.JSON(http.StatusForbidden, gin.H{"error": "Only vendors with a profile can respond to quotes"})
@@ -344,7 +344,7 @@ func (h *QuotesHandler) RespondToQuote(c *gin.Context) {
 	}
 
 	var quoteVendorID string
-	err = db.Pool.QueryRow(ctx, "SELECT vendor_id FROM quote_requests WHERE id::text = $1", quoteID).Scan(&quoteVendorID)
+	err = db.Pool.QueryRow(ctx, "SELECT vendor_id FROM quote_requests WHERE id = $1::uuid", quoteID).Scan(&quoteVendorID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Quote not found or invalid ID format", "details": err.Error()})
 		return
@@ -362,7 +362,7 @@ func (h *QuotesHandler) RespondToQuote(c *gin.Context) {
 	updateQuery := `
 		UPDATE quote_requests
 		SET quoted_price = $1, vendor_response = $2, attachment_url = $3, status = 'responded', responded_at = NOW(), updated_at = NOW()
-		WHERE id::text = $4
+		WHERE id = $4::uuid
 	`
 	_, err = db.Pool.Exec(ctx, updateQuery, payload.QuotedPrice, payload.VendorResponse, payload.AttachmentURL, quoteID)
 	if err != nil {
