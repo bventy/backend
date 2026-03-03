@@ -5,33 +5,44 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 
-	"github.com/bventy/backend/internal/config"
-	"github.com/bventy/backend/internal/db"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
 )
 
 func main() {
-	// Load config
-	cfg := config.LoadConfig()
-
-	// Connect to DB
-	db.Connect(cfg)
-	defer db.Pool.Close()
-
-	// Read migration file
-	migrationFile := "internal/db/migrations/015_email_system.sql"
-	content, err := os.ReadFile(migrationFile)
-	if err != nil {
-		log.Fatalf("Failed to read migration file: %v", err)
+	// 1. Load configuration
+	godotenv.Load()
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		log.Fatal("DATABASE_URL is not set")
 	}
 
-	fmt.Println("Running migration:", migrationFile)
+	if len(os.Args) < 2 {
+		log.Fatal("Usage: go run cmd/migrate/main.go <path_to_migration_sql>")
+	}
+	migrationPath := os.Args[1]
 
-	// Execute SQL
-	_, err = db.Pool.Exec(context.Background(), string(content))
+	// 2. Read migration file
+	content, err := os.ReadFile(migrationPath)
 	if err != nil {
-		log.Fatalf("Failed to execute migration: %v", err)
+		log.Fatalf("Failed to read migration file %s: %v", migrationPath, err)
 	}
 
-	fmt.Println("✅ Migration applied successfully!")
+	// 3. Connect to DB
+	pool, err := pgxpool.New(context.Background(), dbURL)
+	if err != nil {
+		log.Fatalf("Failed to connect to DB: %v", err)
+	}
+	defer pool.Close()
+
+	// 4. Execute migration
+	fmt.Printf("Executing migration: %s...\n", filepath.Base(migrationPath))
+	_, err = pool.Exec(context.Background(), string(content))
+	if err != nil {
+		log.Fatalf("Migration failed: %v", err)
+	}
+
+	fmt.Println("✅ Migration completed successfully!")
 }
