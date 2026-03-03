@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"log"
 	"net/http"
 
 	"github.com/bventy/backend/internal/db"
@@ -156,23 +157,56 @@ func (h *AdminHandler) UpdateUserRole(c *gin.Context) {
 }
 
 func (h *AdminHandler) DeleteUser(c *gin.Context) {
-	userID := c.Param("id")
+	targetUserID := c.Param("id")
 
 	// Prevent self-deletion
-	currentUserID := c.GetString("user_id")
-	if userID == currentUserID {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "You cannot delete your own account"})
-		return
+	currentUserID, _ := c.Get("userID")
+	currentUserRole, _ := c.Get("role")
+
+	if currentUserIDStr, ok := currentUserID.(string); ok {
+		if targetUserID == currentUserIDStr {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "You cannot delete your own account"})
+			return
+		}
 	}
 
-	query := `DELETE FROM users WHERE id = $1 RETURNING id`
-	var id string
-	err := db.Pool.QueryRow(context.Background(), query, userID).Scan(&id)
+	// 1. Get target user's role
+	var targetUserRole string
+	err := db.Pool.QueryRow(context.Background(), "SELECT role FROM users WHERE id = $1", targetUserID).Scan(&targetUserRole)
 	if err != nil {
+		log.Printf("[DeleteUser] User not found: %s", targetUserID)
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
 
+	// 2. Role-based permission check
+	adminRole, ok := currentUserRole.(string)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: user role missing from session"})
+		return
+	}
+
+	if adminRole == "admin" {
+		if targetUserRole == "admin" || targetUserRole == "super_admin" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Admins cannot delete other admins or super admins"})
+			return
+		}
+	} else if adminRole != "super_admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions to delete users"})
+		return
+	}
+
+	// 3. Perform deletion
+	query := `DELETE FROM users WHERE id = $1 RETURNING id`
+	var id string
+	err = db.Pool.QueryRow(context.Background(), query, targetUserID).Scan(&id)
+	if err != nil {
+		log.Printf("[DeleteUser] Failed to delete user %s: %v", targetUserID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete user. They might have related data that prevents deletion."})
+		return
+	}
+
+	log.Printf("[DeleteUser] User %s deleted by %s (%s)", targetUserID, currentUserID, adminRole)
 	c.JSON(http.StatusOK, gin.H{"message": "User deleted successfully"})
 }
 
