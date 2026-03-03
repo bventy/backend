@@ -44,7 +44,7 @@ func (h *MessagingHandler) GetConversations(c *gin.Context) {
 		JOIN events e ON qr.event_id = e.id
 		JOIN vendor_profiles v ON c.vendor_id = v.id
 		LEFT JOIN users u ON c.organizer_user_id = u.id
-		WHERE c.organizer_user_id = $1 OR c.vendor_id = $2
+		WHERE c.organizer_user_id::text = $1 OR ($2 != '' AND c.vendor_id::text = $2)
 		ORDER BY c.last_message_at DESC NULLS LAST, c.created_at DESC
 	`
 
