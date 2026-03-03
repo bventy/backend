@@ -37,7 +37,7 @@ func (h *MessagingHandler) GetConversations(c *gin.Context) {
 			e.title as event_title, 
 			v.business_name as vendor_name,
 			u.full_name as organizer_name,
-			(SELECT COUNT(*) FROM messages m LEFT JOIN message_reads mr ON m.id = mr.message_id AND mr.user_id = $1 WHERE m.conversation_id = c.id AND mr.read_at IS NULL AND m.sender_user_id != $1) as unread_count,
+			(SELECT COUNT(*) FROM messages m LEFT JOIN message_reads mr ON m.id = mr.message_id AND mr.user_id::text = $1 WHERE m.conversation_id = c.id AND mr.read_at IS NULL AND m.sender_user_id::text != $1) as unread_count,
             qr.status as quote_status
 		FROM conversations c
 		JOIN quote_requests qr ON c.quote_id = qr.id
@@ -50,7 +50,8 @@ func (h *MessagingHandler) GetConversations(c *gin.Context) {
 
 	rows, err := db.Pool.Query(ctx, query, userID.(string))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch conversations"})
+		log.Printf("ERROR FETCHING CONVERSATIONS for user %s: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch conversations", "details": err.Error()})
 		return
 	}
 	defer rows.Close()

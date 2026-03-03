@@ -344,9 +344,9 @@ func (h *QuotesHandler) RespondToQuote(c *gin.Context) {
 	}
 
 	var quoteVendorID string
-	err = db.Pool.QueryRow(ctx, "SELECT vendor_id FROM quote_requests WHERE id = $1", quoteID).Scan(&quoteVendorID)
+	err = db.Pool.QueryRow(ctx, "SELECT vendor_id FROM quote_requests WHERE id::text = $1", quoteID).Scan(&quoteVendorID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Quote not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Quote not found or invalid ID format", "details": err.Error()})
 		return
 	}
 	if quoteVendorID != vendorID {
@@ -363,7 +363,7 @@ func (h *QuotesHandler) RespondToQuote(c *gin.Context) {
 	_, err = db.Pool.Exec(ctx, updateQuery, payload.QuotedPrice, payload.VendorResponse, payload.AttachmentURL, quoteID)
 	if err != nil {
 		log.Printf("ERROR: Failed to update quote response: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update quote: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update quote", "details": err.Error()})
 		return
 	}
 
