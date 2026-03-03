@@ -210,12 +210,17 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 		return
 	}
 
-	var otpID, userID string
+	var otpID, userID, role string
 	var attempts int
 	var expiresAt time.Time
 
-	otpQuery := `SELECT id, user_id, attempts, expires_at FROM email_otps WHERE email = $1 AND code = $2 AND purpose = 'verify'`
-	err := db.Pool.QueryRow(c.Request.Context(), otpQuery, req.Email, req.OTP).Scan(&otpID, &userID, &attempts, &expiresAt)
+	otpQuery := `
+		SELECT o.id, o.user_id, o.attempts, o.expires_at, u.role 
+		FROM email_otps o 
+		JOIN users u ON o.user_id = u.id 
+		WHERE o.email = $1 AND o.code = $2 AND o.purpose = 'verify'
+	`
+	err := db.Pool.QueryRow(c.Request.Context(), otpQuery, req.Email, req.OTP).Scan(&otpID, &userID, &attempts, &expiresAt, &role)
 	if err != nil {
 		// Increment attempts for that email if it exists
 		_, _ = db.Pool.Exec(c.Request.Context(), "UPDATE email_otps SET attempts = attempts + 1 WHERE email = $1 AND purpose = 'verify'", req.Email)
@@ -257,7 +262,26 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Email verified successfully!"})
+	// NEW: Auto-login after successful verification
+	token, err := auth.GenerateToken(userID, role, h.Config)
+	if err == nil {
+		c.SetSameSite(http.SameSiteLaxMode)
+		c.SetCookie(
+			"bventy_session",
+			token,
+			3600*24*7, // 7 days
+			"/",
+			h.Config.CookieDomain,
+			h.Config.CookieSecure,
+			true,
+		)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Email verified successfully!",
+		"token":   token,
+		"role":    role,
+	})
 }
 
 type RequestResetRequest struct {
