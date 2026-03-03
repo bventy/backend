@@ -4,7 +4,7 @@ Welcome to the Bventy API. This guide is for developers and partners looking to 
 
 ---
 
-## 🏛 The Bventy Philosophy
+## The Bventy Philosophy
 
 Unlike traditional "gig" platforms, Bventy is built on **deliberate communication**. Our API doesn't just pass data; it enforces a workflow that protects everyone's time, privacy, and dignity.
 
@@ -14,7 +14,7 @@ Unlike traditional "gig" platforms, Bventy is built on **deliberate communicatio
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Base URL
 All API requests should be directed to:
@@ -32,7 +32,7 @@ Authorization: Bearer <your_session_token>
 
 ---
 
-## 👤 Identity & Profiles
+## Identity & Profiles
 
 Every journey on Bventy starts with an identity. We keep profile management simple and focused.
 
@@ -54,7 +54,7 @@ Upload a profile picture. Images are compressed and optimized automatically.
 
 ---
 
-## 🎨 Vendor Ecosystem
+## Vendor Ecosystem
 
 Bventy connects event organizers with verified vendors. Each profile showcases a vendor's expertise and portfolio.
 
@@ -76,7 +76,7 @@ Share your work using high-quality images and documents.
 
 ---
 
-## 📅 Event Coordination
+## Event Coordination
 
 Events are the foundation for every quote request.
 
@@ -92,7 +92,7 @@ Keep track of the vendors you love for a specific event.
 
 ---
 
-## 📜 The Quote Lifecycle
+## The Quote Lifecycle
 
 The quote lifecycle is a structured workflow that moves from discovery to fulfillment.
 
@@ -121,7 +121,7 @@ Once a quote is accepted, contact details are shared.
 
 ---
 
-## 🛡 Platform Administration
+## Platform Administration
 
 Our admin tools ensure the marketplace remains healthy, respectful, and high-performing.
 
@@ -137,7 +137,7 @@ Access aggregated, privacy-preserving insights.
 
 ---
 
-## 📉 Handling Success & Failure
+## Handling Success & Failure
 
 We use standard HTTP status codes to communicate clearly.
 
@@ -154,7 +154,7 @@ We use standard HTTP status codes to communicate clearly.
 
 ---
 
-## 🔐 Trust & Security
+## Trust & Security
 
 -   **Data Retention**: We automatically cleanup sensitive logs every 30 days.
 -   **DDoS Protection**: We use rate limiting to prevent abuse and ensure platform stability.

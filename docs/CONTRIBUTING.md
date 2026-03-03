@@ -32,7 +32,7 @@ Thank you for your interest in contributing to Bventy! We welcome community cont
 - Use `internal/services` for logic that interacts with external systems (R2, SMTP, etc.).
 - Ensure all database queries are parameterized.
 
-## 🚀 Branching & PRs
+## Branching & PRs
 1. Create a feature branch: `git checkout -b feature/your-feature-name`.
 2. Commit your changes with descriptive messages: `git commit -m "feat: add analytics for quote conversion"`.
 3. Push to your fork and open a Pull Request.
