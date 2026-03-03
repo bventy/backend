@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/bventy/backend/internal/db"
 	"github.com/gin-gonic/gin"
@@ -315,17 +316,20 @@ func (h *AdminHandler) UpdatePlatformSetting(c *gin.Context) {
 
 // Email Logs
 func (h *AdminHandler) GetEmailLogs(c *gin.Context) {
+	ctx := c.Request.Context()
+
 	// 1. Automatic 30-day cleanup
-	_, err := db.Pool.Exec(context.Background(), "DELETE FROM email_logs WHERE sent_at < NOW() - INTERVAL '30 days'")
+	_, err := db.Pool.Exec(ctx, "DELETE FROM email_logs WHERE sent_at < NOW() - INTERVAL '30 days'")
 	if err != nil {
 		log.Printf("Warning: failed to cleanup old email logs: %v", err)
 	}
 
 	// 2. Fetch logs
 	query := `SELECT id, to_email, subject, body_html, template_key, sent_at FROM email_logs ORDER BY sent_at DESC LIMIT 500`
-	rows, err := db.Pool.Query(context.Background(), query)
+	rows, err := db.Pool.Query(ctx, query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch email logs"})
+		log.Printf("Error: failed to query email logs: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch email logs: " + err.Error()})
 		return
 	}
 	defer rows.Close()
@@ -334,9 +338,10 @@ func (h *AdminHandler) GetEmailLogs(c *gin.Context) {
 	for rows.Next() {
 		var id, to, subject, body string
 		var templateKey *string
-		var sentAt interface{}
+		var sentAt time.Time
 
 		if err := rows.Scan(&id, &to, &subject, &body, &templateKey, &sentAt); err != nil {
+			log.Printf("Warning: failed to scan email log row: %v", err)
 			continue
 		}
 
