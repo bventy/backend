@@ -37,7 +37,8 @@ func (h *MessagingHandler) GetConversations(c *gin.Context) {
 			e.title as event_title, 
 			v.business_name as vendor_name,
 			u.full_name as organizer_name,
-			(SELECT COUNT(*) FROM messages m LEFT JOIN message_reads mr ON m.id = mr.message_id AND mr.user_id = $1 WHERE m.conversation_id = c.id AND mr.read_at IS NULL AND m.sender_user_id != $1) as unread_count
+			(SELECT COUNT(*) FROM messages m LEFT JOIN message_reads mr ON m.id = mr.message_id AND mr.user_id = $1 WHERE m.conversation_id = c.id AND mr.read_at IS NULL AND m.sender_user_id != $1) as unread_count,
+            qr.status as quote_status
 		FROM conversations c
 		JOIN quote_requests qr ON c.quote_id = qr.id
 		JOIN events e ON qr.event_id = e.id
@@ -56,13 +57,14 @@ func (h *MessagingHandler) GetConversations(c *gin.Context) {
 
 	var conversations []gin.H
 	for rows.Next() {
-		var id, quoteID, vID, oID, eventTitle, vendorName string
+		var id, quoteID, vID, oID, eventTitle, vendorName, quoteStatus string
 		var organizerName *string
 		var locked bool
 		var lastMessageAt, createdAt interface{}
 		var unreadCount int
 
-		if err := rows.Scan(&id, &quoteID, &vID, &oID, &locked, &lastMessageAt, &createdAt, &eventTitle, &vendorName, &organizerName, &unreadCount); err != nil {
+		if err := rows.Scan(&id, &quoteID, &vID, &oID, &locked, &lastMessageAt, &createdAt, &eventTitle, &vendorName, &organizerName, &unreadCount, &quoteStatus); err != nil {
+			log.Printf("ERROR SCANNING CONVERSATION: %v", err)
 			continue
 		}
 
@@ -78,6 +80,7 @@ func (h *MessagingHandler) GetConversations(c *gin.Context) {
 			"vendor_name":       vendorName,
 			"organizer_name":    organizerName,
 			"unread_count":      unreadCount,
+			"quote_status":      quoteStatus,
 		})
 	}
 
