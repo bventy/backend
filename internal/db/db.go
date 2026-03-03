@@ -6,8 +6,6 @@ import (
 	"log"
 	"net/url"
 
-	"os"
-
 	"github.com/bventy/backend/internal/config"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -41,30 +39,4 @@ func Connect(cfg *config.Config) {
 	}
 
 	fmt.Println("✅ Connected to PostgreSQL successfully!")
-
-	// Auto-run migration 015
-	InitSchema()
-}
-
-func InitSchema() {
-	migrations := []string{
-		"internal/db/migrations/015_email_system.sql",
-		"internal/db/migrations/016_email_sender_customization.sql",
-	}
-
-	for _, migrationFile := range migrations {
-		content, err := os.ReadFile(migrationFile)
-		if err != nil {
-			log.Printf("⚠️ Warning: Could not read migration file %s: %v", migrationFile, err)
-			continue
-		}
-
-		fmt.Println("Running auto-migration:", migrationFile)
-		_, err = Pool.Exec(context.Background(), string(content))
-		if err != nil {
-			log.Printf("❌ Migration failed for %s: %v", migrationFile, err)
-		} else {
-			fmt.Println("✅ Migration applied successfully:", migrationFile)
-		}
-	}
 }
