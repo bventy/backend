@@ -48,7 +48,7 @@ func (h *MessagingHandler) GetConversations(c *gin.Context) {
 		ORDER BY c.last_message_at DESC NULLS LAST, c.created_at DESC
 	`
 
-	rows, err := db.Pool.Query(ctx, query, userID.(string), vendorID)
+	rows, err := db.Pool.Query(ctx, query, userID.(string))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch conversations"})
 		return
