@@ -34,8 +34,8 @@ CREATE TABLE IF NOT EXISTS "email_templates" (
 
 -- Seed initial templates
 INSERT INTO email_templates (template_key, subject, body_html) VALUES
-('verify_email', 'Verify your Bventy account', '<html><body><h1>Welcome to Bventy!</h1><p>Your verification code is: <strong>{{code}}</strong></p><p>This code expires in 10 minutes.</p></body></html>'),
-('reset_password', 'Password Reset Request', '<html><body><h1>Password Reset</h1><p>Reset your password using the code: <strong>{{code}}</strong></p><p>If you did not request this, please ignore this email.</p></body></html>'),
+('verify_email', 'Verify your Bventy account', '<html><body><h1>Welcome to Bventy!</h1><p>Your verification code is: <strong>{{code}}</strong></p><p>This code expires in 60 minutes.</p></body></html>'),
+('reset_password', 'Password Reset Request', '<html><body><h1>Password Reset</h1><p>Reset your password using the code: <strong>{{code}}</strong></p><p>This code expires in 60 minutes. If you did not request this, please ignore this email.</p></body></html>'),
 ('quote_requested', 'New Quote Request Received', '<html><body><h1>New Quote Request</h1><p>Hello {{vendor_name}}, you have received a new quote request for "{{event_title}}".</p><p>Check your dashboard for details.</p></body></html>'),
 ('quote_updated', 'Quote Updated', '<html><body><h1>Quote Updated</h1><p>The quote for "{{event_title}}" has been updated.</p></body></html>'),
 ('quote_accepted', 'Quote Accepted!', '<html><body><h1>Congratulations!</h1><p>Your quote for "{{event_title}}" has been accepted by {{organizer_name}}.</p></body></html>'),

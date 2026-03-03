@@ -79,7 +79,7 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 
 	// Step 2: Generate OTP
 	otpCode := generateOTP()
-	expiresAt := time.Now().Add(10 * time.Minute)
+	expiresAt := time.Now().Add(60 * time.Minute)
 
 	// Step 3: Rate limit check (1 OTP per 60s)
 	var latestCreatedAt time.Time
@@ -312,7 +312,7 @@ func (h *AuthHandler) RequestReset(c *gin.Context) {
 	}
 
 	otpCode := generateOTP()
-	expiresAt := time.Now().Add(15 * time.Minute)
+	expiresAt := time.Now().Add(60 * time.Minute)
 
 	_, err = db.Pool.Exec(c.Request.Context(), "INSERT INTO email_otps (user_id, email, code, purpose, expires_at) VALUES ($1, $2, $3, 'reset', $4)", userID, req.Email, otpCode, expiresAt)
 	if err != nil {
@@ -442,7 +442,7 @@ func (h *AuthHandler) ResendVerification(c *gin.Context) {
 	}
 
 	otpCode := generateOTP()
-	expiresAt := time.Now().Add(10 * time.Minute)
+	expiresAt := time.Now().Add(60 * time.Minute)
 
 	// Update OTP and increment user's attempt counter
 	tx, err := db.Pool.Begin(c.Request.Context())
