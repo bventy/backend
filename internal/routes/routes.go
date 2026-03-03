@@ -24,6 +24,8 @@ func RegisterRoutes(r *gin.Engine) {
 	eventHandler := handlers.NewEventHandler()
 	mediaHandler := handlers.NewMediaHandler(cfg)
 	quotesHandler := handlers.NewQuotesHandler(emailService)
+	workspaceHandler := handlers.NewWorkspaceHandler()
+	calendarHandler := handlers.NewCalendarHandler()
 	trackHandler := handlers.NewTrackHandler()
 	reviewHandler := handlers.NewReviewHandler()
 
@@ -83,6 +85,12 @@ func RegisterRoutes(r *gin.Engine) {
 		// Vendor profiles & Management (Non-gated parts)
 		protected.GET("/vendor/me", vendorHandler.GetMyProfile)
 		protected.PUT("/vendor/me", vendorHandler.UpdateVendor)
+
+		// Vendor Workspace
+		protected.GET("/vendor/overview", workspaceHandler.GetVendorOverview)
+		protected.GET("/vendor/calendar/events", calendarHandler.GetCalendarEvents)
+		protected.POST("/vendor/calendar/blocks", calendarHandler.CreateManualBlock)
+		protected.DELETE("/vendor/calendar/blocks/:id", calendarHandler.DeleteManualBlock)
 
 		// Vendor Gallery & Portfolio
 		protected.POST("/vendors/:id/gallery", vendorHandler.UploadGalleryImage)
