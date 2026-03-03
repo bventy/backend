@@ -1,0 +1,24 @@
+# Binaries
+api
+main
+bin/
+
+# Environment
+.env
+
+# Logs
+*.log
+server.log
+
+# Temporary
+tmp/
+.git
+.github
+docs/
+scripts/
+*.sh
+README.md
+LICENSE
+TRADEMARK.md
+Dockerfile
+docker-compose.yml
