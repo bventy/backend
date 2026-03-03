@@ -1,83 +1,164 @@
-# API Reference
+# Bventy API Reference
 
-The Bventy API is a RESTful system using JSON for request and response payloads. All protected endpoints require a valid JWT in the `Authorization` header.
-
-## 🔑 Authentication
-- **Base URL**: `https://api.bventy.in` (Production)
-- **Header**: `Authorization: Bearer <your_jwt_token>`
+Welcome to the heart of the Bventy platform. This documentation is designed for developers, partners, and our community to understand how the Bventy engine operates. We believe that transparency is the foundation of trust, and we’ve built our API to reflect the same human-first principles that guide our marketplace.
 
 ---
 
-## 🌍 Public Endpoints
+## 🏛 The Bventy Philosophy
 
-### Health Check
-- **GET** `/health`
-- returns `200 OK` if the server is healthy.
+Unlike traditional "gig" platforms, Bventy is built on **deliberate communication**. Our API doesn't just pass data; it enforces a workflow that protects everyone's time, privacy, and dignity.
 
-### Vendors
-- **GET** `/vendors`: List all verified vendors.
-- **GET** `/vendors/slug/:slug`: Get detailed profile for a specific vendor by their slug.
+1.  **Privacy by Design**: Personal contact details (WhatsApp, Email, Phone) are encrypted and gated. They are only revealed once an organizer and vendor have mutually agreed on a quote.
+2.  **Structured Lifecycle**: Every interaction follows a predictable sequence. This eliminates the "transactional chaos" common in event planning.
+3.  **Contact Expiry**: To keep your workspace clean and secure, access to contact details automatically expires after the event is completed or the quote is archived.
 
 ---
 
-## 🔐 Protected Endpoints (Requires Auth)
+## 🚀 Getting Started
 
-### User & Session
-- **POST** `/auth/signup`: Create a new account.
-- **POST** `/auth/login`: Authenticate and receive a JWT.
-- **GET** `/me`: Retrieve the current user's profile and roles.
-- **PUT** `/me`: Update user profile details.
+### Base URL
+All API requests should be directed to:
+`https://api.bventy.in` (Production)
 
-### Quote Requests (Marketplace Core)
-- **POST** `/quotes/request`: Initiate a new quote request from an organizer.
-- **GET** `/quotes/organizer`: List quotes requested by the current organizer.
-- **GET** `/quotes/vendor`: List quotes received by the current vendor.
-- **PATCH** `/quotes/respond/:id`: Vendor sends a price and message for a request.
-- **PATCH** `/quotes/accept/:id`: Organizer accepts a vendor's quote.
-- **PATCH** `/quotes/reject/:id`: Organizer rejects a quote.
-- **PATCH** `/quotes/revision/:id`: Organizer requests a revision with feedback.
-- **GET** `/quotes/:id/contact`: Unlocked contact details for accepted quotes.
+### Authentication
+Bventy uses a dual-layered authentication system to ensure maximum security and cross-subdomain compatibility.
 
-### Events & Groups
-- **POST** `/events`: Create a new event.
-- **GET** `/events`: List your events.
-- **POST** `/events/:id/shortlist/:vendorID`: Save a vendor to an event shortlist.
-- **POST** `/groups`: Create a community group.
-- **GET** `/groups/my`: List groups you belong to.
+-   **Session Cookies**: Our primary method for web clients. Secure, HttpOnly, and SameSite cookies allow you to stay logged in across `app.bventy.in`, `vendor.bventy.in`, and `auth.bventy.in`.
+-   **JWT Tokens**: For stateless requests, we provide a standard JSON Web Token (JWT) in the `Authorization` header.
 
-### Media & Assets
-- **POST** `/media/upload`: Generic file upload to Cloudflare R2.
-- **POST** `/vendors/:id/gallery`: Add an image to the vendor's public gallery.
-- **POST** `/vendors/:id/portfolio`: Upload a PDF/document to the vendor's portfolio.
+```bash
+Authorization: Bearer <your_session_token>
+```
 
 ---
 
-## 🛡 Admin Endpoints (Admin Only)
+## 👤 Identity & Profiles
 
-### Marketplace Analytics
-- **GET** `/admin/metrics/overview`: General platform health.
-- **GET** `/admin/metrics/growth`: User and vendor acquisition trends.
-- **GET** `/admin/metrics/marketplace`: Quote conversion and GMV metrics.
+Every journey on Bventy starts with an identity. We keep profile management simple and focused.
+
+### Get My Profile
+`GET /me`
+Retrieves the current user's identity, roles, and a list of groups they belong to.
+-   **Response**: Returns your full name, username, email verification status, and active group memberships.
+
+### Update Profile
+`PUT /me`
+Update your personal details.
+-   **Fields**: `full_name`, `username`, `phone`, `city`, `bio`, `profile_image_url`.
+-   **Note**: Usernames must be unique across the platform.
+
+### Profile Image
+`POST /users/profile-image`
+Upload a profile picture. We automatically compress and optimize images for the best performance.
+-   **Payload**: `multipart/form-data` with a `file` field.
+
+---
+
+## 🎨 Vendor Ecosystem
+
+Bventy is home to a curated collection of event experts. Each vendor profile is a window into their craft.
+
+### Explore Vendors
+`GET /vendors`
+List all verified vendors on the platform.
+-   **Response**: A collection of vendor cards including business names, categories, average ratings, and primary portfolio images.
+
+### Onboarding
+`POST /vendor/onboard` (Verified Email Required)
+Start your journey as a Bventy vendor.
+-   **Payload**: `business_name`, `category`, `city`, `whatsapp_link`, `bio`.
+-   **Status**: New profiles enter a `pending` state for moderation to maintain platform quality.
+
+### Gallery & Portfolio
+Showcase your best work with high-resolution imagery and documents.
+-   **Add Image**: `POST /vendors/:id/gallery` (Max 25 images)
+-   **Add Portfolio**: `POST /vendors/:id/portfolio` (PDF only, max 20 files)
+
+---
+
+## 📅 Event Coordination
+
+Organizers use Bventy to bring their vision to life. Events are the "north star" for every quote request.
+
+### Create an Event
+`POST /events`
+Define the scope of your upcoming event.
+-   **Payload**: `title`, `city`, `event_date` (ISO), `event_type`, `budget_min`, `budget_max`.
+-   **Groups**: Events can be owned by a group if `organizer_group_id` is provided.
+
+### Shortlisting
+`POST /events/:id/shortlist/:vendorID`
+Keep track of the vendors you love for a specific event.
+
+---
+
+## 📜 The Quote Lifecycle
+
+This is the core engine of Bventy. It’s a staged workflow designed to move from discovery to fulfillment with total clarity.
+
+### 1. Request a Quote
+`POST /quotes/request`
+Organizers initiate contact by providing requirements to a specific vendor.
+-   **Payload**: `event_id`, `vendor_id`, `message`, `budget_range`, `deadline`.
+-   **Privacy**: At this stage, NO personal contact info is shared.
+
+### 2. Vendor Response
+`PATCH /quotes/respond/:id`
+Vendors review the requirements and provide a formal proposal.
+-   **Payload**: `quoted_price`, `vendor_response` (Message), `attachment_url`.
+
+### 3. The Decision
+Organizers have three clear choices:
+-   **Accept**: `PATCH /quotes/accept/:id` — This **unlocks contact details** for both parties.
+-   **Revision**: `PATCH /quotes/revision/:id` — Request a change or clarification.
+-   **Reject**: `PATCH /quotes/reject/:id` — Respectfully decline the proposal.
+
+### 4. Unlocking Contact
+`GET /quotes/:id/contact` (Accepted Status Only)
+Once a quote is accepted, the "gate" opens.
+-   **Response**: Returns the verified phone, email, and WhatsApp links for both the organizer and the vendor.
+-   **Smart Expiry**: This access is temporary. It typically expires 15 days after the event date to protect long-term privacy.
+
+---
+
+## 🛡 Platform Administration
+
+Our admin tools ensure the marketplace remains healthy, respectful, and high-performing.
+
+### Performance Metrics
+Access aggregated, privacy-preserving insights.
+-   **Overview**: `GET /admin/metrics/overview`
+-   **Growth**: `GET /admin/metrics/growth`
+-   **Marketplace**: `GET /admin/metrics/marketplace`
 
 ### Moderation
-- **GET** `/admin/vendors`: List all vendors (pending and verified).
-- **PATCH** `/admin/vendors/:id/approve`: Verify a vendor profile.
-- **PATCH** `/admin/vendors/:id/reject`: Reject a vendor application.
+-   **Approve Vendor**: `PATCH /admin/vendors/:id/approve`
+-   **User Management**: `DELETE /admin/users/:id`
 
 ---
 
-## 📉 Error Handling
-The API uses standard HTTP status codes:
-- `200/201`: Success.
-- `400`: Bad Request (Invalid payload).
-- `401`: Unauthorized (Missing or invalid token).
-- `403`: Forbidden (Insufficient permissions).
-- `404`: Not Found.
-- `500`: Internal Server Error.
+## 📉 Handling Success & Failure
 
-All errors return a JSON response:
-```json
-{
-  "error": "Detailed error message here"
-}
-```
+We use standard HTTP status codes to communicate clearly.
+
+| Code | Meaning | Human Translation |
+| :--- | :--- | :--- |
+| **200** | OK | Everything worked as expected. |
+| **201** | Created | A new resource (like an event or user) was successfully born. |
+| **400** | Bad Request | The request was missing something important. |
+| **401** | Unauthorized | We don't know who you are. Please log in first. |
+| **403** | Forbidden | You don't have permission for this specific action. |
+| **404** | Not Found | The resource you're looking for has moved or doesn't exist. |
+| **409** | Conflict | Something already exists (like a duplicate email). |
+| **500** | Server Error | Something went wrong on our end. We're on it. |
+
+---
+
+## 🔐 Trust & Security
+
+-   **Data Retention**: We automatically cleanup sensitive logs every 30 days.
+-   **DDoS Protection**: We use rate limiting to prevent abuse and ensure platform stability.
+-   **Encryption**: All data is served over TLS (HTTPS).
+
+---
+© 2026 Bventy. Building the future of event coordination, one clear connection at a time.
