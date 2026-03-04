@@ -444,19 +444,21 @@ func (h *QuotesHandler) GetQuoteById(c *gin.Context) {
 		QuotedPrice         *float64   `json:"quoted_price"`
 		VendorResponse      *string    `json:"vendor_response"`
 		AttachmentURL       *string    `json:"attachment_url"`
+		CreatedBy           string     `json:"organizer_user_id"`
 		CreatedAt           time.Time  `json:"created_at"`
 		RespondedAt         *time.Time `json:"responded_at"`
 		AcceptedAt          *time.Time `json:"accepted_at"`
 		RejectedAt          *time.Time `json:"rejected_at"`
 		RevisionRequestedAt *time.Time `json:"revision_requested_at"`
 		RevisionMessage     *string    `json:"revision_message"`
+		InternalNotes       *string    `json:"internal_notes"`
 
 		Event struct {
 			ID        string    `json:"id"`
 			Title     string    `json:"title"`
 			EventDate time.Time `json:"event_date"`
 			City      string    `json:"city"`
-			EventType string    `json:"event_type"`
+			EventType *string   `json:"event_type"`
 			BudgetMin *int      `json:"budget_min"`
 			BudgetMax *int      `json:"budget_max"`
 		} `json:"event"`
@@ -477,7 +479,7 @@ func (h *QuotesHandler) GetQuoteById(c *gin.Context) {
 		SELECT 
 			qr.id, qr.status, qr.message, qr.deadline, qr.budget_range, qr.special_requirements,
 			qr.quoted_price, qr.vendor_response, qr.attachment_url, qr.created_at,
-			qr.responded_at, qr.accepted_at, qr.rejected_at, qr.revision_requested_at, qr.revision_message,
+			qr.responded_at, qr.accepted_at, qr.rejected_at, qr.revision_requested_at, qr.revision_message, qr.internal_notes,
 			e.id, e.title, e.event_date, e.city, e.event_type, e.budget_min, e.budget_max,
 			u.full_name,
 			vp.id, vp.business_name,
@@ -490,7 +492,7 @@ func (h *QuotesHandler) GetQuoteById(c *gin.Context) {
 	`, quoteID).Scan(
 		&q.ID, &q.Status, &q.Message, &q.Deadline, &q.BudgetRange, &q.SpecialRequirements,
 		&q.QuotedPrice, &q.VendorResponse, &q.AttachmentURL, &q.CreatedAt,
-		&q.RespondedAt, &q.AcceptedAt, &q.RejectedAt, &q.RevisionRequestedAt, &q.RevisionMessage,
+		&q.RespondedAt, &q.AcceptedAt, &q.RejectedAt, &q.RevisionRequestedAt, &q.RevisionMessage, &q.InternalNotes,
 		&q.Event.ID, &q.Event.Title, &q.Event.EventDate, &q.Event.City, &q.Event.EventType, &q.Event.BudgetMin, &q.Event.BudgetMax,
 		&q.Organizer.FullName,
 		&q.Vendor.ID, &q.Vendor.BusinessName,
@@ -508,6 +510,50 @@ func (h *QuotesHandler) GetQuoteById(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, q)
+}
+
+func (h *QuotesHandler) UpdateInternalNotes(c *gin.Context) {
+	quoteID := c.Param("id")
+	userID, _ := c.Get("userID")
+	ctx := c.Request.Context()
+
+	var payload struct {
+		Notes string `json:"notes"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid payload"})
+		return
+	}
+
+	// Verify ownership
+	var vendorOwnerID string
+	err := db.Pool.QueryRow(ctx, `
+		SELECT vp.owner_user_id
+		FROM quote_requests qr
+		JOIN vendor_profiles vp ON qr.vendor_id = vp.id
+		WHERE qr.id = $1
+	`, quoteID).Scan(&vendorOwnerID)
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Quote not found"})
+		return
+	}
+
+	if userID.(string) != vendorOwnerID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You are not authorized to add notes to this quote"})
+		return
+	}
+
+	_, err = db.Pool.Exec(ctx, `
+		UPDATE quote_requests SET internal_notes = $1 WHERE id = $2
+	`, payload.Notes, quoteID)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update notes"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Notes updated successfully"})
 }
 
 func (h *QuotesHandler) RequestRevision(c *gin.Context) {
