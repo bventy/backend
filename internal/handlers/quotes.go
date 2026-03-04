@@ -452,12 +452,13 @@ func (h *QuotesHandler) GetQuoteById(c *gin.Context) {
 		RevisionMessage     *string    `json:"revision_message"`
 
 		Event struct {
-			ID          string    `json:"id"`
-			Title       string    `json:"title"`
-			EventDate   time.Time `json:"event_date"`
-			City        string    `json:"city"`
-			Description *string   `json:"description"`
-			GuestCount  *int      `json:"guest_count"`
+			ID        string    `json:"id"`
+			Title     string    `json:"title"`
+			EventDate time.Time `json:"event_date"`
+			City      string    `json:"city"`
+			EventType string    `json:"event_type"`
+			BudgetMin *int      `json:"budget_min"`
+			BudgetMax *int      `json:"budget_max"`
 		} `json:"event"`
 
 		Organizer struct {
@@ -477,7 +478,7 @@ func (h *QuotesHandler) GetQuoteById(c *gin.Context) {
 			qr.id, qr.status, qr.message, qr.deadline, qr.budget_range, qr.special_requirements,
 			qr.quoted_price, qr.vendor_response, qr.attachment_url, qr.created_at,
 			qr.responded_at, qr.accepted_at, qr.rejected_at, qr.revision_requested_at, qr.revision_message,
-			e.id, e.title, e.event_date, e.city, e.description,
+			e.id, e.title, e.event_date, e.city, e.event_type, e.budget_min, e.budget_max,
 			u.full_name,
 			vp.id, vp.business_name,
 			vp.owner_user_id, qr.organizer_user_id
@@ -490,7 +491,7 @@ func (h *QuotesHandler) GetQuoteById(c *gin.Context) {
 		&q.ID, &q.Status, &q.Message, &q.Deadline, &q.BudgetRange, &q.SpecialRequirements,
 		&q.QuotedPrice, &q.VendorResponse, &q.AttachmentURL, &q.CreatedAt,
 		&q.RespondedAt, &q.AcceptedAt, &q.RejectedAt, &q.RevisionRequestedAt, &q.RevisionMessage,
-		&q.Event.ID, &q.Event.Title, &q.Event.EventDate, &q.Event.City, &q.Event.Description,
+		&q.Event.ID, &q.Event.Title, &q.Event.EventDate, &q.Event.City, &q.Event.EventType, &q.Event.BudgetMin, &q.Event.BudgetMax,
 		&q.Organizer.FullName,
 		&q.Vendor.ID, &q.Vendor.BusinessName,
 		&vendorOwnerID, &organizerID,
