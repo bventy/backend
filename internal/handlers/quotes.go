@@ -75,11 +75,16 @@ func (h *QuotesHandler) CreateQuoteRequest(c *gin.Context) {
 		return
 	}
 
-	// 2. Validate vendor exists
-	var vendorExists int
-	err = db.Pool.QueryRow(ctx, "SELECT 1 FROM vendor_profiles WHERE id::text = $1", payload.VendorID).Scan(&vendorExists)
+	// 2. Validate vendor exists & is not owned by the requester
+	var vendorOwnerID string
+	err = db.Pool.QueryRow(ctx, "SELECT owner_user_id FROM vendor_profiles WHERE id::text = $1", payload.VendorID).Scan(&vendorOwnerID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Vendor not found"})
+		return
+	}
+
+	if vendorOwnerID == organizerID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You cannot request a quote from your own vendor profile"})
 		return
 	}
 

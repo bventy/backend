@@ -202,7 +202,7 @@ func (h *VendorHandler) GetVendorBySlug(c *gin.Context) {
 		WHERE vp.slug = $1 AND vp.status = 'verified'
 	`
 
-	var id, name, s, category, city, bio, whatsappLink string
+	var id, name, s, category, city, bio, whatsappLink, ownerUserID string
 	var portfolioImageURL, ownerFullName, ownerProfileImage *string
 	var galleryImages []string
 	var portfolioFiles []interface{}
@@ -214,7 +214,7 @@ func (h *VendorHandler) GetVendorBySlug(c *gin.Context) {
 		&id, &name, &s, &category, &city, &bio, &whatsappLink,
 		&portfolioImageURL, &galleryImages, &portfolioFiles,
 		&ownerFullName, &ownerProfileImage,
-		&avgRating, &reviewCount, &isAcceptingBookings,
+		&avgRating, &reviewCount, &isAcceptingBookings, &ownerUserID,
 	)
 	if err != nil {
 		if err != pgx.ErrNoRows {
@@ -240,6 +240,7 @@ func (h *VendorHandler) GetVendorBySlug(c *gin.Context) {
 		"average_rating":        avgRating,
 		"review_count":          reviewCount,
 		"is_accepting_bookings": isAcceptingBookings,
+		"owner_user_id":         ownerUserID,
 	})
 }
 
