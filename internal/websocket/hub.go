@@ -68,6 +68,12 @@ func NewHub() *Hub {
 	}
 }
 
+func (h *Hub) IsUserOnline(userID string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.ActiveUsers[userID]
+}
+
 func (h *Hub) Run() {
 	for {
 		select {

@@ -34,11 +34,12 @@ func (h *MessagingHandler) GetConversations(c *gin.Context) {
 		SELECT 
 			c.id, c.quote_id, c.vendor_id, c.organizer_user_id, c.chat_locked, 
 			c.last_message_at, c.created_at,
-			e.title as event_title, 
-			v.business_name as vendor_name,
+			e.title as event_title, e.event_type,
+			v.business_name as vendor_name, v.category as vendor_category, v.owner_user_id as vendor_owner_id,
 			u.full_name as organizer_name,
 			(SELECT COUNT(*) FROM messages m LEFT JOIN message_reads mr ON m.id = mr.message_id AND mr.user_id = $1::uuid WHERE m.conversation_id = c.id AND mr.read_at IS NULL AND m.sender_user_id != $1::uuid) as unread_count,
-            qr.status as quote_status
+            qr.status as quote_status,
+            COALESCE((SELECT body FROM messages WHERE conversation_id = c.id AND message_type IN ('text', 'attachment') ORDER BY created_at DESC LIMIT 1), '') as last_message_snippet
 		FROM conversations c
 		JOIN quote_requests qr ON c.quote_id = qr.id
 		JOIN events e ON qr.event_id = e.id
@@ -58,16 +59,23 @@ func (h *MessagingHandler) GetConversations(c *gin.Context) {
 
 	var conversations []gin.H
 	for rows.Next() {
-		var id, quoteID, vID, eventTitle, vendorName, quoteStatus string
+		var id, quoteID, vID, eventTitle, eventType, vendorName, vendorCategory, vendorOwnerID, quoteStatus, lastMessageSnippet string
 		var organizerName, oID *string
 		var locked bool
 		var lastMessageAt, createdAt interface{}
 		var unreadCount int64
 
-		if err := rows.Scan(&id, &quoteID, &vID, &oID, &locked, &lastMessageAt, &createdAt, &eventTitle, &vendorName, &organizerName, &unreadCount, &quoteStatus); err != nil {
+		if err := rows.Scan(&id, &quoteID, &vID, &oID, &locked, &lastMessageAt, &createdAt, &eventTitle, &eventType, &vendorName, &vendorCategory, &vendorOwnerID, &organizerName, &unreadCount, &quoteStatus, &lastMessageSnippet); err != nil {
 			log.Printf("ERROR SCANNING CONVERSATION: %v", err)
 			continue
 		}
+
+		// Check online status of the other party
+		otherUserID := vendorOwnerID
+		if oID != nil && *oID != userID.(string) {
+			otherUserID = *oID
+		}
+		isOnline := h.Hub.IsUserOnline(otherUserID)
 
 		conversations = append(conversations, gin.H{
 			"id":                id,
@@ -78,10 +86,15 @@ func (h *MessagingHandler) GetConversations(c *gin.Context) {
 			"last_message_at":   lastMessageAt,
 			"created_at":        createdAt,
 			"event_title":       eventTitle,
+			"event_type":        eventType,
 			"vendor_name":       vendorName,
+			"vendor_category":   vendorCategory,
 			"organizer_name":    organizerName,
 			"unread_count":      unreadCount,
 			"quote_status":      quoteStatus,
+			"last_message":      lastMessageSnippet,
+			"online":            isOnline,
+			"other_user_id":     otherUserID,
 		})
 	}
 
