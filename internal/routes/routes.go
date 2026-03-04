@@ -30,7 +30,7 @@ func RegisterRoutes(r *gin.Engine) {
 	groupHandler := handlers.NewGroupHandler()
 	eventHandler := handlers.NewEventHandler()
 	mediaHandler := handlers.NewMediaHandler(cfg)
-	quotesHandler := handlers.NewQuotesHandler(emailService)
+	quotesHandler := handlers.NewQuotesHandler(emailService, hub)
 	workspaceHandler := handlers.NewWorkspaceHandler()
 	calendarHandler := handlers.NewCalendarHandler()
 	trackHandler := handlers.NewTrackHandler()

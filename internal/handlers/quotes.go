@@ -9,18 +9,18 @@ import (
 
 	"github.com/bventy/backend/internal/db"
 	"github.com/bventy/backend/internal/services"
+	"github.com/bventy/backend/internal/websocket"
 	"github.com/gin-gonic/gin"
 )
 
 type QuotesHandler struct {
 	MediaService *services.MediaService
 	EmailService *services.EmailService
+	Hub          *websocket.Hub
 }
 
-func NewQuotesHandler(emailService *services.EmailService) *QuotesHandler {
-	// We might need media service here for some logic, but usually it's used in MediaHandler.
-	// For RespondToQuote, we might want to handle attachment verification if needed.
-	return &QuotesHandler{EmailService: emailService}
+func NewQuotesHandler(emailService *services.EmailService, hub *websocket.Hub) *QuotesHandler {
+	return &QuotesHandler{EmailService: emailService, Hub: hub}
 }
 
 type CreateQuoteRequestPayload struct {
@@ -371,6 +371,43 @@ func (h *QuotesHandler) RespondToQuote(c *gin.Context) {
 		return
 	}
 
+	// 3. Update Conversation & Insert System Message
+	go func(qID string, price float64, resp *string, attURL *string) {
+		bgCtx := context.Background()
+		var convID string
+		err := db.Pool.QueryRow(bgCtx, "SELECT id FROM conversations WHERE quote_id = $1::uuid", qID).Scan(&convID)
+		if err == nil {
+			sysPayload := map[string]interface{}{
+				"quoted_price":    price,
+				"vendor_response": resp,
+				"attachment_url":  attURL,
+			}
+			var msgID string
+			var createdAt time.Time
+			err = db.Pool.QueryRow(bgCtx, `
+				INSERT INTO messages (conversation_id, sender_user_id, message_type, system_payload)
+				VALUES ($1, $2, 'quote_response', $3)
+				RETURNING id, created_at
+			`, convID, userID.(string), sysPayload).Scan(&msgID, &createdAt)
+
+			if err == nil {
+				// Broadcast
+				event := websocket.MessageEvent{
+					Type:           "new_message",
+					ConversationID: convID,
+					Payload: map[string]interface{}{
+						"id":             msgID,
+						"sender_user_id": userID.(string),
+						"message_type":   "quote_response",
+						"system_payload": sysPayload,
+						"created_at":     createdAt,
+					},
+				}
+				h.Hub.Broadcast <- event
+			}
+		}
+	}(quoteID, payload.QuotedPrice, payload.VendorResponse, payload.AttachmentURL)
+
 	c.JSON(http.StatusOK, gin.H{"message": "Quote responded successfully"})
 }
 
@@ -547,25 +584,73 @@ func (h *QuotesHandler) updateQuoteStatusByOrganizer(c *gin.Context, newStatus s
 		return
 	}
 
-	// Activity Log
-	actionType := "quote_" + newStatus
-	_, _ = db.Pool.Exec(ctx, `INSERT INTO platform_activity_log (entity_type, entity_id, action_type, actor_user_id) VALUES ('quote', $1, $2, $3)`, quoteID, actionType, organizerID)
+	// Activity Log & Status Change Message
+	go func(qID string, status string, msg string) {
+		bgCtx := context.Background()
 
-	if newStatus == "accepted" {
-		_, _ = db.Pool.Exec(ctx, `INSERT INTO platform_activity_log (entity_type, entity_id, action_type, actor_user_id) VALUES ('quote', $1, 'contact_unlocked', $2)`, quoteID, organizerID)
+		// Activity Log
+		actionType := "quote_" + status
+		_, _ = db.Pool.Exec(bgCtx, `INSERT INTO platform_activity_log (entity_type, entity_id, action_type, actor_user_id) VALUES ('quote', $1, $2, $3)`, qID, actionType, organizerID)
 
-		// Unlock Chat
-		go func(qID string) {
-			bgCtx := context.Background()
-			var convID string
-			err := db.Pool.QueryRow(bgCtx, `UPDATE conversations SET chat_locked = false WHERE quote_id = $1 RETURNING id`, qID).Scan(&convID)
-			if err == nil {
-				_, _ = db.Pool.Exec(bgCtx, `INSERT INTO messages (conversation_id, message_type, body) VALUES ($1, 'system', 'Chat unlocked. You can now communicate directly.')`, convID)
+		var convID string
+		err := db.Pool.QueryRow(bgCtx, "SELECT id FROM conversations WHERE quote_id = $1::uuid", qID).Scan(&convID)
+		if err == nil {
+			msgType := "quote_" + status
+			sysPayload := map[string]interface{}{
+				"message": msg,
 			}
-		}(quoteID)
-	}
+			var messageID string
+			var createdAt time.Time
+			err = db.Pool.QueryRow(bgCtx, `
+				INSERT INTO messages (conversation_id, sender_user_id, message_type, system_payload)
+				VALUES ($1, $2, $3, $4)
+				RETURNING id, created_at
+			`, convID, organizerID, msgType, sysPayload).Scan(&messageID, &createdAt)
 
-	// Step 4: Notifications
+			if err == nil {
+				// Broadcast
+				event := websocket.MessageEvent{
+					Type:           "new_message",
+					ConversationID: convID,
+					Payload: map[string]interface{}{
+						"id":             messageID,
+						"sender_user_id": organizerID,
+						"message_type":   msgType,
+						"system_payload": sysPayload,
+						"created_at":     createdAt,
+					},
+				}
+				h.Hub.Broadcast <- event
+
+				if status == "accepted" {
+					// 1. Unlock Chat in DB
+					_, _ = db.Pool.Exec(bgCtx, `UPDATE conversations SET chat_locked = false WHERE id = $1`, convID)
+
+					// 2. Also insert/broadcast "Chat unlocked"
+					var unlockID string
+					var unlockCreated time.Time
+					_ = db.Pool.QueryRow(bgCtx, `
+						INSERT INTO messages (conversation_id, message_type, body) 
+						VALUES ($1, 'system', 'Chat unlocked. You can now communicate directly.')
+						RETURNING id, created_at
+					`, convID).Scan(&unlockID, &unlockCreated)
+
+					h.Hub.Broadcast <- websocket.MessageEvent{
+						Type:           "new_message",
+						ConversationID: convID,
+						Payload: map[string]interface{}{
+							"id":           unlockID,
+							"message_type": "system",
+							"body":         "Chat unlocked. You can now communicate directly.",
+							"created_at":   unlockCreated,
+						},
+					}
+				}
+			}
+		}
+	}(quoteID, newStatus, revisionMessage)
+
+	// Notifications
 	go func() {
 		var recipientEmail string
 		templateKey := "quote_" + newStatus
