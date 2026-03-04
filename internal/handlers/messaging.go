@@ -125,11 +125,11 @@ func (h *MessagingHandler) GetMessages(c *gin.Context) {
 			COALESCE(
 				(SELECT json_agg(json_build_object('reaction', r.reaction, 'user_id', r.user_id))
 				 FROM message_reactions r WHERE r.message_id = m.id),
-				'[]'
+				'[]'::json
 			) as reactions
 		FROM messages m
 		LEFT JOIN users u ON m.sender_user_id = u.id
-		WHERE m.conversation_id = $1
+		WHERE m.conversation_id = $1::uuid
 		ORDER BY m.created_at ASC
 	`
 	rows, err := db.Pool.Query(ctx, query, conversationID)
@@ -351,13 +351,16 @@ func (h *MessagingHandler) ToggleReaction(c *gin.Context) {
 
 	// 3. Fetch final reactions for this message to broadcast
 	var finalReactions interface{}
-	db.Pool.QueryRow(ctx, `
+	if err := db.Pool.QueryRow(ctx, `
 		SELECT COALESCE(
 			(SELECT json_agg(json_build_object('reaction', reaction, 'user_id', user_id))
 			 FROM message_reactions WHERE message_id = $1),
-			'[]'
+			'[]'::json
 		)
-	`, messageID).Scan(&finalReactions)
+	`, messageID).Scan(&finalReactions); err != nil {
+		log.Printf("[REACTION DEBUG] Error fetching final reactions for msg %s: %v", messageID, err)
+		finalReactions = "[]"
+	}
 
 	// 4. Broadcast via WebSocket
 	event := websocket.MessageEvent{
