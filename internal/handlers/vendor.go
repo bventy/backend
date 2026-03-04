@@ -11,6 +11,7 @@ import (
 	"github.com/bventy/backend/internal/services"
 	"github.com/gin-gonic/gin"
 	pgx "github.com/jackc/pgx/v5"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type VendorHandler struct {
@@ -252,6 +253,7 @@ type UpdateVendorRequest struct {
 	GalleryImages       []string      `json:"gallery_images"`
 	PortfolioFiles      []interface{} `json:"portfolio_files"`
 	IsAcceptingBookings *bool         `json:"is_accepting_bookings"`
+	Password            string        `json:"password"`
 }
 
 func (h *VendorHandler) UpdateVendor(c *gin.Context) {
@@ -267,14 +269,33 @@ func (h *VendorHandler) UpdateVendor(c *gin.Context) {
 		return
 	}
 
-	// Calculate new slug if business name changes?
-	// For simplicity, let's keep slug persistent or only update if explicitly needed.
-	// The requirement doesn't specify slug updates, so we'll skip slug updates to avoid breaking links.
+	// Security Check: If toggling off bookings, require password
+	if req.IsAcceptingBookings != nil {
+		var currentStatus bool
+		var passwordHash string
+		err := db.Pool.QueryRow(c.Request.Context(), `
+			SELECT vp.is_accepting_bookings, u.password_hash 
+			FROM vendor_profiles vp 
+			JOIN users u ON vp.owner_user_id = u.id 
+			WHERE u.id = $1
+		`, userID).Scan(&currentStatus, &passwordHash)
 
-	// Handling PortfolioFiles JSONB
-	// We might need to marshal it to string or byte[] if the driver requires it,
-	// but pgx usually handles []interface{} -> jsonb automatically if we pass it right.
-	// However, it's safer to just pass it directly if the driver supports it.
+		if err == nil && currentStatus != *req.IsAcceptingBookings {
+			// Per user request: toggle OFF requires password
+			if *req.IsAcceptingBookings == false {
+				if req.Password == "" {
+					c.JSON(http.StatusUnauthorized, gin.H{"error": "Password required to disable bookings"})
+					return
+				}
+				if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
+					c.JSON(http.StatusUnauthorized, gin.H{"error": "Incorrect password"})
+					return
+				}
+			}
+		}
+	}
+
+	// Calculate new slug if business name changes?
 
 	// Handle Updates
 	// We need to verify ownership first or just update where owner_user_id = userID
