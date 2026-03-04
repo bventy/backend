@@ -234,6 +234,8 @@ func (h *QuotesHandler) GetVendorQuotes(c *gin.Context) {
 			"contact_expires_at":    expiresAt,
 			"archived_at":           archivedAt,
 			"revision_message":      revisionMsg,
+			"event_date":            eventDate,
+			"event_type":            eventType,
 		})
 	}
 	if quotes == nil {
