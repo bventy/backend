@@ -133,6 +133,7 @@ func RegisterRoutes(r *gin.Engine) {
 		protected.GET("/conversations", messagingHandler.GetConversations)
 		protected.GET("/conversations/:id/messages", messagingHandler.GetMessages)
 		protected.POST("/conversations/:id/messages", messagingHandler.SendMessage)
+		protected.POST("/conversations/:id/messages/:msgId/reactions", messagingHandler.ToggleReaction)
 		protected.PATCH("/conversations/:id/read", messagingHandler.MarkAsRead)
 
 		// WebSocket connection logic (authentication usually via cookies since wss:// cannot send standard bearer headers from browser natively, but middleware.AuthMiddleware reads from cookies in Bventy)

@@ -121,7 +121,12 @@ func (h *MessagingHandler) GetMessages(c *gin.Context) {
 			m.attachment_url, m.attachment_type, m.system_payload,
 			m.created_at, m.edited_at, m.deleted_at,
 			u.full_name as sender_name,
-			(SELECT COUNT(user_id) FROM message_reads WHERE message_id = m.id AND user_id != m.sender_user_id) > 0 as is_read
+			(SELECT COUNT(user_id) FROM message_reads WHERE message_id = m.id AND user_id != m.sender_user_id) > 0 as is_read,
+			COALESCE(
+				(SELECT json_agg(json_build_object('reaction', r.reaction, 'user_id', r.user_id))
+				 FROM message_reactions r WHERE r.message_id = m.id),
+				'[]'
+			) as reactions
 		FROM messages m
 		LEFT JOIN users u ON m.sender_user_id = u.id
 		WHERE m.conversation_id = $1
@@ -129,6 +134,7 @@ func (h *MessagingHandler) GetMessages(c *gin.Context) {
 	`
 	rows, err := db.Pool.Query(ctx, query, conversationID)
 	if err != nil {
+		log.Printf("ERROR fetching messages for %s: %v", conversationID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch messages"})
 		return
 	}
@@ -139,10 +145,12 @@ func (h *MessagingHandler) GetMessages(c *gin.Context) {
 		var id, msgType string
 		var senderID, body, attURL, attType, senderName *string
 		var sysPayload interface{} // JSONB
+		var reactions interface{}  // JSONB
 		var createdAt, editedAt, deletedAt interface{}
 		var isRead bool
 
-		if err := rows.Scan(&id, &senderID, &msgType, &body, &attURL, &attType, &sysPayload, &createdAt, &editedAt, &deletedAt, &senderName, &isRead); err != nil {
+		if err := rows.Scan(&id, &senderID, &msgType, &body, &attURL, &attType, &sysPayload, &createdAt, &editedAt, &deletedAt, &senderName, &isRead, &reactions); err != nil {
+			log.Printf("ERROR SCANNING MESSAGE: %v", err)
 			continue
 		}
 
@@ -159,6 +167,7 @@ func (h *MessagingHandler) GetMessages(c *gin.Context) {
 			"edited_at":       editedAt,
 			"deleted_at":      deletedAt,
 			"is_read":         isRead,
+			"reactions":       reactions,
 		})
 	}
 
@@ -287,4 +296,81 @@ func (h *MessagingHandler) MarkAsRead(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "success"})
+}
+
+// POST /conversations/:id/messages/:msgId/reactions
+func (h *MessagingHandler) ToggleReaction(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	conversationID := c.Param("id")
+	messageID := c.Param("msgId")
+
+	var payload struct {
+		Reaction string `json:"reaction" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx := c.Request.Context()
+
+	// 1. Verify access to conversation & message
+	var count int
+	verifyQuery := `
+		SELECT 1 FROM messages m
+		JOIN conversations c ON m.conversation_id = c.id
+		JOIN vendor_profiles v ON c.vendor_id = v.id
+		WHERE c.id = $1::uuid AND m.id = $2::uuid AND (c.organizer_user_id = $3::uuid OR v.owner_user_id = $3::uuid)
+	`
+	if err := db.Pool.QueryRow(ctx, verifyQuery, conversationID, messageID, userID.(string)).Scan(&count); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied or message not found"})
+		return
+	}
+
+	// 2. Toggle Reaction (Delete if exists, else Insert)
+	var deleted bool
+	deleteQuery := `DELETE FROM message_reactions WHERE message_id = $1 AND user_id = $2 AND reaction = $3`
+	tag, _ := db.Pool.Exec(ctx, deleteQuery, messageID, userID.(string), payload.Reaction)
+	if tag.RowsAffected() > 0 {
+		deleted = true
+	} else {
+		insertQuery := `INSERT INTO message_reactions (message_id, user_id, reaction) VALUES ($1, $2, $3)`
+		if _, err := db.Pool.Exec(ctx, insertQuery, messageID, userID.(string), payload.Reaction); err != nil {
+			log.Printf("REACTION INSERT ERROR: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to toggle reaction"})
+			return
+		}
+	}
+
+	// 3. Fetch final reactions for this message to broadcast
+	var finalReactions interface{}
+	db.Pool.QueryRow(ctx, `
+		SELECT COALESCE(
+			(SELECT json_agg(json_build_object('reaction', reaction, 'user_id', user_id))
+			 FROM message_reactions WHERE message_id = $1),
+			'[]'
+		)
+	`, messageID).Scan(&finalReactions)
+
+	// 4. Broadcast via WebSocket
+	event := websocket.MessageEvent{
+		Type:           "reaction_updated",
+		ConversationID: conversationID,
+		Payload: gin.H{
+			"message_id": messageID,
+			"reactions":  finalReactions,
+		},
+	}
+	go func() { h.Hub.Broadcast <- event }()
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":    "success",
+		"toggled":   payload.Reaction,
+		"deleted":   deleted,
+		"reactions": finalReactions,
+	})
 }
