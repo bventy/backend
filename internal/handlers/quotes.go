@@ -383,17 +383,20 @@ func (h *QuotesHandler) RespondToQuote(c *gin.Context) {
 		}
 		var msgID string
 		var createdAt time.Time
+		// Added explicit body as fallback
+		fallbackBody := fmt.Sprintf("Quote Response: ₹%.2f", payload.QuotedPrice)
 		err = db.Pool.QueryRow(ctx, `
-			INSERT INTO messages (conversation_id, sender_user_id, message_type, system_payload)
-			VALUES ($1::uuid, $2::uuid, 'quote_response', $3)
+			INSERT INTO messages (conversation_id, sender_user_id, message_type, body, system_payload)
+			VALUES ($1::uuid, $2::uuid, 'quote_response', $3, $4)
 			RETURNING id, created_at
-		`, convID, userID.(string), sysPayload).Scan(&msgID, &createdAt)
+		`, convID, userID.(string), fallbackBody, sysPayload).Scan(&msgID, &createdAt)
 
 		if err != nil {
-			log.Printf("ERROR: Failed to insert quote_response message for quote %s: %v", quoteID, err)
+			log.Printf("ERROR: Failed to insert quote_response message for quote %s into conv %s: %v", quoteID, convID, err)
 		} else {
+			log.Printf("SUCCESS: Inserted quote_response message %s for quote %s", msgID, quoteID)
 			// Broadcast (can be background)
-			go func(cID string, mID string, uID string, sp map[string]interface{}, ca time.Time) {
+			go func(cID string, mID string, uID string, sp map[string]interface{}, ca time.Time, body string) {
 				h.Hub.Broadcast <- websocket.MessageEvent{
 					Type:           "new_message",
 					ConversationID: cID,
@@ -401,14 +404,15 @@ func (h *QuotesHandler) RespondToQuote(c *gin.Context) {
 						"id":             mID,
 						"sender_user_id": uID,
 						"message_type":   "quote_response",
+						"body":           body,
 						"system_payload": sp,
 						"created_at":     ca,
 					},
 				}
-			}(convID, msgID, userID.(string), sysPayload, createdAt)
+			}(convID, msgID, userID.(string), sysPayload, createdAt, fallbackBody)
 		}
 	} else {
-		log.Printf("WARNING: No conversation found for quote %s, skipping message insertion: %v", quoteID, err)
+		log.Printf("CRITICAL WARNING: No conversation found for quote %s. User %s attempted to respond. DB error: %v", quoteID, userID, err)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Quote responded successfully"})
@@ -602,15 +606,17 @@ func (h *QuotesHandler) updateQuoteStatusByOrganizer(c *gin.Context, newStatus s
 		}
 		var messageID string
 		var createdAt time.Time
+		fallbackBody := "Quote " + newStatus
 		err = db.Pool.QueryRow(ctx, `
-			INSERT INTO messages (conversation_id, sender_user_id, message_type, system_payload)
-			VALUES ($1::uuid, $2::uuid, $3, $4)
+			INSERT INTO messages (conversation_id, sender_user_id, message_type, body, system_payload)
+			VALUES ($1::uuid, $2::uuid, $3, $4, $5)
 			RETURNING id, created_at
-		`, convID, organizerID, msgType, sysPayload).Scan(&messageID, &createdAt)
+		`, convID, organizerID, msgType, fallbackBody, sysPayload).Scan(&messageID, &createdAt)
 
 		if err != nil {
-			log.Printf("ERROR: Failed to insert status message for quote %s: %v", quoteID, err)
+			log.Printf("ERROR: Failed to insert status message (%s) for quote %s: %v", msgType, quoteID, err)
 		} else {
+			log.Printf("SUCCESS: Inserted status message %s of type %s", messageID, msgType)
 			// Broadcast
 			h.Hub.Broadcast <- websocket.MessageEvent{
 				Type:           "new_message",
@@ -619,6 +625,7 @@ func (h *QuotesHandler) updateQuoteStatusByOrganizer(c *gin.Context, newStatus s
 					"id":             messageID,
 					"sender_user_id": organizerID,
 					"message_type":   msgType,
+					"body":           fallbackBody,
 					"system_payload": sysPayload,
 					"created_at":     createdAt,
 				},
@@ -655,19 +662,20 @@ func (h *QuotesHandler) updateQuoteStatusByOrganizer(c *gin.Context, newStatus s
 			}
 		}
 	} else {
-		log.Printf("WARNING: No conversation found for quote %s, status update message skipped: %v", quoteID, err)
+		log.Printf("CRITICAL WARNING: No conversation found for quote %s during status update (%s). DB error: %v", quoteID, newStatus, err)
 	}
 
-	// Notifications
+	// Notifications - USE context.Background() in goroutines
 	go func() {
+		bgCtx := context.Background()
 		var recipientEmail string
 		templateKey := "quote_" + newStatus
 		if newStatus == "accepted" || newStatus == "rejected" || newStatus == "revision_requested" {
 			// Notify Vendor
-			_ = db.Pool.QueryRow(ctx, "SELECT u.email FROM users u JOIN vendor_profiles vp ON vp.owner_user_id = u.id WHERE vp.id = (SELECT vendor_id FROM quote_requests WHERE id = $1)", quoteID).Scan(&recipientEmail)
+			_ = db.Pool.QueryRow(bgCtx, "SELECT u.email FROM users u JOIN vendor_profiles vp ON vp.owner_user_id = u.id WHERE vp.id = (SELECT vendor_id FROM quote_requests WHERE id = $1)", quoteID).Scan(&recipientEmail)
 		} else if newStatus == "responded" {
 			// Notify Organizer
-			_ = db.Pool.QueryRow(ctx, "SELECT u.email FROM users u JOIN quote_requests qr ON qr.organizer_user_id = u.id WHERE qr.id = $1", quoteID).Scan(&recipientEmail)
+			_ = db.Pool.QueryRow(bgCtx, "SELECT u.email FROM users u JOIN quote_requests qr ON qr.organizer_user_id = u.id WHERE qr.id = $1", quoteID).Scan(&recipientEmail)
 		}
 
 		if recipientEmail != "" {
@@ -678,7 +686,6 @@ func (h *QuotesHandler) updateQuoteStatusByOrganizer(c *gin.Context, newStatus s
 			_ = h.EmailService.SendQuoteNotification(recipientEmail, templateKey, vars)
 		}
 	}()
-
 	c.JSON(http.StatusOK, gin.H{"message": "Quote " + newStatus + " successfully"})
 }
 
