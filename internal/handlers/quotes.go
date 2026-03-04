@@ -616,27 +616,40 @@ func (h *QuotesHandler) GetQuoteContact(c *gin.Context) {
 		return
 	}
 
-	var contact struct {
+	var organizer struct {
 		Name  string `json:"name"`
 		Email string `json:"email"`
 		Phone string `json:"phone"`
 	}
-
-	otherUserID := qr.OrganizerUserID
-	if userID.(string) == qr.OrganizerUserID {
-		otherUserID = qr.VendorUserID
+	var vendor struct {
+		WhatsApp string `json:"whatsapp"`
+		Phone    string `json:"phone"`
+		Email    string `json:"email"`
 	}
 
+	// Fetch Organizer Info
 	err = db.Pool.QueryRow(ctx, `
 		SELECT full_name, email, phone FROM users WHERE id = $1
-	`, otherUserID).Scan(&contact.Name, &contact.Email, &contact.Phone)
-
+	`, qr.OrganizerUserID).Scan(&organizer.Name, &organizer.Email, &organizer.Phone)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch contact info"})
-		return
+		log.Printf("Error fetching organizer info: %v", err)
 	}
 
-	c.JSON(http.StatusOK, contact)
+	// Fetch Vendor Info
+	err = db.Pool.QueryRow(ctx, `
+		SELECT u.email, u.phone, vp.whatsapp_link 
+		FROM users u
+		JOIN vendor_profiles vp ON u.id = vp.owner_user_id
+		WHERE u.id = $1
+	`, qr.VendorUserID).Scan(&vendor.Email, &vendor.Phone, &vendor.WhatsApp)
+	if err != nil {
+		log.Printf("Error fetching vendor info: %v", err)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"organizer": organizer,
+		"vendor":    vendor,
+	})
 }
 
 func (h *QuotesHandler) updateQuoteStatusByOrganizer(c *gin.Context, newStatus string, revisionMessage string) {
