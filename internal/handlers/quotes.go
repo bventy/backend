@@ -452,6 +452,7 @@ func (h *QuotesHandler) GetQuoteById(c *gin.Context) {
 		RevisionRequestedAt *time.Time `json:"revision_requested_at"`
 		RevisionMessage     *string    `json:"revision_message"`
 		InternalNotes       *string    `json:"internal_notes"`
+		ConversationID      *string    `json:"conversation_id"`
 
 		Event struct {
 			ID        string     `json:"id"`
@@ -483,11 +484,13 @@ func (h *QuotesHandler) GetQuoteById(c *gin.Context) {
 			e.id, e.title, e.event_date, e.city, e.event_type, e.budget_min, e.budget_max,
 			u.full_name,
 			vp.id, vp.business_name,
-			vp.owner_user_id, qr.organizer_user_id
+			vp.owner_user_id, e.organizer_user_id,
+			c.id as conversation_id
 		FROM quote_requests qr
 		JOIN events e ON qr.event_id = e.id
-		JOIN users u ON qr.organizer_user_id = u.id
+		JOIN users u ON e.organizer_user_id = u.id
 		JOIN vendor_profiles vp ON qr.vendor_id = vp.id
+		LEFT JOIN conversations c ON qr.id = c.quote_id
 		WHERE qr.id = $1
 	`, quoteID).Scan(
 		&q.ID, &q.Status, &q.Message, &q.Deadline, &q.BudgetRange, &q.SpecialRequirements,
@@ -497,6 +500,7 @@ func (h *QuotesHandler) GetQuoteById(c *gin.Context) {
 		&q.Organizer.FullName,
 		&q.Vendor.ID, &q.Vendor.BusinessName,
 		&vendorOwnerID, &organizerID,
+		&q.ConversationID,
 	)
 
 	if err != nil {
