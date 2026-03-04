@@ -273,12 +273,13 @@ func (h *VendorHandler) UpdateVendor(c *gin.Context) {
 	if req.IsAcceptingBookings != nil {
 		var currentStatus bool
 		var passwordHash string
-		err := db.Pool.QueryRow(c.Request.Context(), `
+		securityQuery := `
 			SELECT vp.is_accepting_bookings, u.password_hash 
 			FROM vendor_profiles vp 
 			JOIN users u ON vp.owner_user_id = u.id 
 			WHERE u.id = $1
-		`, userID).Scan(&currentStatus, &passwordHash)
+		`
+		err := db.Pool.QueryRow(c.Request.Context(), securityQuery, userID).Scan(&currentStatus, &passwordHash)
 
 		if err == nil && currentStatus != *req.IsAcceptingBookings {
 			// Per user request: toggle OFF requires password
@@ -292,13 +293,12 @@ func (h *VendorHandler) UpdateVendor(c *gin.Context) {
 					return
 				}
 			}
+		} else if err != nil && err != pgx.ErrNoRows {
+			fmt.Printf("ERROR: Security check failed for user %v: %v\n", userID, err)
 		}
 	}
 
-	// Calculate new slug if business name changes?
-
 	// Handle Updates
-	// We need to verify ownership first or just update where owner_user_id = userID
 	query := `
 		UPDATE vendor_profiles 
 		SET business_name = COALESCE(NULLIF($2, ''), business_name),
@@ -306,21 +306,16 @@ func (h *VendorHandler) UpdateVendor(c *gin.Context) {
 		    city = COALESCE(NULLIF($4, ''), city),
 		    bio = COALESCE(NULLIF($5, ''), bio),
 		    whatsapp_link = COALESCE(NULLIF($6, ''), whatsapp_link),
-		    portfolio_image_url = $7,
-		    gallery_images = $8,
-		    portfolio_files = $9,
+		    portfolio_image_url = COALESCE(NULLIF($7, ''), portfolio_image_url),
+		    gallery_images = COALESCE($8, gallery_images),
+		    portfolio_files = COALESCE($9, portfolio_files),
 		    is_accepting_bookings = COALESCE($10, is_accepting_bookings)
 		WHERE owner_user_id = $1
 		RETURNING id
 	`
 
-	// Note: For arrays and jsonb, if they are empty/nil in request, we might want to keep existing?
-	// But usually a save replaces the list. So we will overwrite.
-	// COALESCE logic above is for strings. For arrays, we probably want to allow clearing them (empty list).
-	// So we pass them directly.
-
 	var id string
-	err := db.Pool.QueryRow(context.Background(), query,
+	err := db.Pool.QueryRow(c.Request.Context(), query,
 		userID,
 		req.BusinessName,
 		req.Category,
@@ -334,6 +329,7 @@ func (h *VendorHandler) UpdateVendor(c *gin.Context) {
 	).Scan(&id)
 
 	if err != nil {
+		fmt.Printf("ERROR: Failed to update vendor profile for user %v: %v\n", userID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update vendor profile: " + err.Error()})
 		return
 	}
