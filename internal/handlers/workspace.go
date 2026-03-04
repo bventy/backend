@@ -37,6 +37,14 @@ func (h *WorkspaceHandler) GetVendorOverview(c *gin.Context) {
 	var urgentRequests int
 	var avgResponseTimeHours float64
 	var profileViews int
+	var pendingResponses int
+	var isAcceptingBookings bool
+
+	// Get is_accepting_bookings
+	err = db.Pool.QueryRow(ctx, "SELECT is_accepting_bookings FROM vendor_profiles WHERE id = $1", vendorID).Scan(&isAcceptingBookings)
+	if err != nil {
+		log.Printf("ERROR getting booking status: %v", err)
+	}
 
 	// Urgent Requests: Pending quotes requested more than 24 hours ago OR Event is within 7 days
 	err = db.Pool.QueryRow(ctx, `
@@ -47,6 +55,15 @@ func (h *WorkspaceHandler) GetVendorOverview(c *gin.Context) {
 	`, vendorID).Scan(&urgentRequests)
 	if err != nil {
 		log.Printf("ERROR getting urgent requests count: %v", err)
+	}
+
+	// Total Pending Responses (Awaiting Response)
+	err = db.Pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM quote_requests
+		WHERE vendor_id = $1 AND status = 'pending'
+	`, vendorID).Scan(&pendingResponses)
+	if err != nil {
+		log.Printf("ERROR getting pending responses count: %v", err)
 	}
 
 	// Avg Response Time (Hours): Avg time between created_at and responded_at
@@ -88,13 +105,16 @@ func (h *WorkspaceHandler) GetVendorOverview(c *gin.Context) {
 		upcomingBookingsList = []UpcomingBooking{}
 	}
 
-	// Profile Views: Last 30 days
-	err = db.Pool.QueryRow(ctx, `
-		SELECT COUNT(*) FROM vendor_profile_views
-		WHERE vendor_id = $1 AND created_at > NOW() - INTERVAL '30 days'
-	`, vendorID).Scan(&profileViews)
+	// Profile Views (Now using the aggregated column for total, or last 30 days from logs?)
+	// The user wants "smart" update. We should show the value from the table.
+	err = db.Pool.QueryRow(ctx, "SELECT views_count FROM vendor_profiles WHERE id = $1", vendorID).Scan(&profileViews)
 	if err != nil {
-		log.Printf("ERROR getting profile views: %v", err)
+		log.Printf("ERROR getting profile views from table: %v", err)
+		// Fallback to calculation if views_count is NULL or error (though it shouldn't be)
+		_ = db.Pool.QueryRow(ctx, `
+			SELECT COUNT(*) FROM vendor_profile_views
+			WHERE vendor_id = $1 AND created_at > NOW() - INTERVAL '30 days'
+		`, vendorID).Scan(&profileViews)
 	}
 
 	// 5. Tentative Holds: Top 3 active quote requests (pending, responded, etc.)
@@ -159,10 +179,12 @@ func (h *WorkspaceHandler) GetVendorOverview(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"urgent_requests":   urgentRequests,
-		"avg_response_time": avgResponseTimeHours, // in hours
-		"upcoming_bookings": upcomingBookingsList,
-		"profile_views":     profileViews,
-		"tentative_holds":   tentativeHolds,
+		"urgent_requests":       urgentRequests,
+		"pending_responses":     pendingResponses,
+		"avg_response_time":     avgResponseTimeHours, // in hours
+		"upcoming_bookings":     upcomingBookingsList,
+		"profile_views":         profileViews,
+		"tentative_holds":       tentativeHolds,
+		"is_accepting_bookings": isAcceptingBookings,
 	})
 }

@@ -82,7 +82,7 @@ func (h *VendorHandler) GetMyProfile(c *gin.Context) {
 	// Use COALESCE for nullable text fields to avoid Scan errors
 	// Use 'status' column instead of non-existent 'verified' column
 	query := `
-		SELECT business_name, slug, category, city, COALESCE(bio, ''), whatsapp_link, portfolio_image_url, gallery_images, portfolio_files, status
+		SELECT business_name, slug, category, city, COALESCE(bio, ''), whatsapp_link, portfolio_image_url, gallery_images, portfolio_files, status, is_accepting_bookings, views_count
 		FROM vendor_profiles 
 		WHERE owner_user_id = $1
 	`
@@ -91,10 +91,13 @@ func (h *VendorHandler) GetMyProfile(c *gin.Context) {
 	var portfolioImageURL *string
 	var galleryImages []string
 	var portfolioFiles []interface{}
+	var isAcceptingBookings bool
+	var viewsCount int64
 
 	err := db.Pool.QueryRow(context.Background(), query, userID).Scan(
 		&name, &slug, &category, &city, &bio, &whatsappLink,
 		&portfolioImageURL, &galleryImages, &portfolioFiles, &status,
+		&isAcceptingBookings, &viewsCount,
 	)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Vendor profile not found"})
@@ -105,16 +108,18 @@ func (h *VendorHandler) GetMyProfile(c *gin.Context) {
 	verified := (status == "verified")
 
 	c.JSON(http.StatusOK, gin.H{
-		"business_name":       name,
-		"slug":                slug,
-		"category":            category,
-		"city":                city,
-		"bio":                 bio,
-		"whatsapp_link":       whatsappLink,
-		"portfolio_image_url": portfolioImageURL,
-		"gallery_images":      galleryImages,
-		"portfolio_files":     portfolioFiles,
-		"verified":            verified,
+		"business_name":         name,
+		"slug":                  slug,
+		"category":              category,
+		"city":                  city,
+		"bio":                   bio,
+		"whatsapp_link":         whatsappLink,
+		"portfolio_image_url":   portfolioImageURL,
+		"gallery_images":        galleryImages,
+		"portfolio_files":       portfolioFiles,
+		"verified":              verified,
+		"is_accepting_bookings": isAcceptingBookings,
+		"views_count":           viewsCount,
 	})
 }
 
@@ -124,7 +129,8 @@ func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 			vp.id, vp.business_name, vp.slug, vp.category, vp.city, vp.bio, vp.whatsapp_link, vp.portfolio_image_url, vp.gallery_images,
 			u.full_name, u.profile_image_url,
 			COALESCE(rs.avg_rating, 0) as average_rating,
-			COALESCE(rs.review_count, 0) as review_count
+			COALESCE(rs.review_count, 0) as review_count,
+			vp.is_accepting_bookings
 		FROM vendor_profiles vp
 		JOIN users u ON vp.owner_user_id = u.id
 		LEFT JOIN (
@@ -133,6 +139,7 @@ func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 			GROUP BY vendor_id
 		) rs ON vp.id = rs.vendor_id
 		WHERE vp.status = 'verified'
+		ORDER BY vp.is_accepting_bookings DESC, rs.avg_rating DESC NULLS LAST, vp.created_at DESC
 	`
 	rows, err := db.Pool.Query(c.Request.Context(), query)
 	if err != nil {
@@ -149,24 +156,26 @@ func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 		var galleryImages []string
 		var avgRating float64
 		var reviewCount int
+		var isAcceptingBookings bool
 
-		if err := rows.Scan(&id, &name, &slug, &category, &city, &bio, &whatsappLink, &portfolioImageURL, &galleryImages, &ownerFullName, &ownerProfileImage, &avgRating, &reviewCount); err != nil {
+		if err := rows.Scan(&id, &name, &slug, &category, &city, &bio, &whatsappLink, &portfolioImageURL, &galleryImages, &ownerFullName, &ownerProfileImage, &avgRating, &reviewCount, &isAcceptingBookings); err != nil {
 			continue
 		}
 		vendors = append(vendors, gin.H{
-			"id":                  id,
-			"business_name":       name,
-			"slug":                slug,
-			"category":            category,
-			"city":                city,
-			"bio":                 bio,
-			"whatsapp_link":       whatsappLink,
-			"portfolio_image_url": portfolioImageURL,
-			"gallery_images":      galleryImages,
-			"owner_full_name":     ownerFullName,
-			"owner_profile_image": ownerProfileImage,
-			"average_rating":      avgRating,
-			"review_count":        reviewCount,
+			"id":                    id,
+			"business_name":         name,
+			"slug":                  slug,
+			"category":              category,
+			"city":                  city,
+			"bio":                   bio,
+			"whatsapp_link":         whatsappLink,
+			"portfolio_image_url":   portfolioImageURL,
+			"gallery_images":        galleryImages,
+			"owner_full_name":       ownerFullName,
+			"owner_profile_image":   ownerProfileImage,
+			"average_rating":        avgRating,
+			"review_count":          reviewCount,
+			"is_accepting_bookings": isAcceptingBookings,
 		})
 	}
 
@@ -180,7 +189,8 @@ func (h *VendorHandler) GetVendorBySlug(c *gin.Context) {
 			vp.id, vp.business_name, vp.slug, vp.category, vp.city, vp.bio, vp.whatsapp_link, vp.portfolio_image_url, vp.gallery_images, vp.portfolio_files,
 			u.full_name, u.profile_image_url,
 			COALESCE(rs.avg_rating, 0) as average_rating,
-			COALESCE(rs.review_count, 0) as review_count
+			COALESCE(rs.review_count, 0) as review_count,
+			vp.is_accepting_bookings
 		FROM vendor_profiles vp
 		JOIN users u ON vp.owner_user_id = u.id
 		LEFT JOIN (
@@ -197,12 +207,13 @@ func (h *VendorHandler) GetVendorBySlug(c *gin.Context) {
 	var portfolioFiles []interface{}
 	var avgRating float64
 	var reviewCount int
+	var isAcceptingBookings bool
 
 	err := db.Pool.QueryRow(c.Request.Context(), query, slug).Scan(
 		&id, &name, &s, &category, &city, &bio, &whatsappLink,
 		&portfolioImageURL, &galleryImages, &portfolioFiles,
 		&ownerFullName, &ownerProfileImage,
-		&avgRating, &reviewCount,
+		&avgRating, &reviewCount, &isAcceptingBookings,
 	)
 	if err != nil {
 		if err != pgx.ErrNoRows {
@@ -213,32 +224,34 @@ func (h *VendorHandler) GetVendorBySlug(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"id":                  id,
-		"business_name":       name,
-		"slug":                s,
-		"category":            category,
-		"city":                city,
-		"bio":                 bio,
-		"whatsapp_link":       whatsappLink,
-		"portfolio_image_url": portfolioImageURL,
-		"gallery_images":      galleryImages,
-		"portfolio_files":     portfolioFiles,
-		"owner_full_name":     ownerFullName,
-		"owner_profile_image": ownerProfileImage,
-		"average_rating":      avgRating,
-		"review_count":        reviewCount,
+		"id":                    id,
+		"business_name":         name,
+		"slug":                  s,
+		"category":              category,
+		"city":                  city,
+		"bio":                   bio,
+		"whatsapp_link":         whatsappLink,
+		"portfolio_image_url":   portfolioImageURL,
+		"gallery_images":        galleryImages,
+		"portfolio_files":       portfolioFiles,
+		"owner_full_name":       ownerFullName,
+		"owner_profile_image":   ownerProfileImage,
+		"average_rating":        avgRating,
+		"review_count":          reviewCount,
+		"is_accepting_bookings": isAcceptingBookings,
 	})
 }
 
 type UpdateVendorRequest struct {
-	BusinessName      string        `json:"business_name"`
-	Category          string        `json:"category"`
-	City              string        `json:"city"`
-	Bio               string        `json:"bio"`
-	WhatsappLink      string        `json:"whatsapp_link"`
-	PortfolioImageURL string        `json:"portfolio_image_url"`
-	GalleryImages     []string      `json:"gallery_images"`
-	PortfolioFiles    []interface{} `json:"portfolio_files"` // Array of objects {name, url}
+	BusinessName        string        `json:"business_name"`
+	Category            string        `json:"category"`
+	City                string        `json:"city"`
+	Bio                 string        `json:"bio"`
+	WhatsappLink        string        `json:"whatsapp_link"`
+	PortfolioImageURL   string        `json:"portfolio_image_url"`
+	GalleryImages       []string      `json:"gallery_images"`
+	PortfolioFiles      []interface{} `json:"portfolio_files"`
+	IsAcceptingBookings *bool         `json:"is_accepting_bookings"`
 }
 
 func (h *VendorHandler) UpdateVendor(c *gin.Context) {
@@ -274,7 +287,8 @@ func (h *VendorHandler) UpdateVendor(c *gin.Context) {
 		    whatsapp_link = COALESCE(NULLIF($6, ''), whatsapp_link),
 		    portfolio_image_url = $7,
 		    gallery_images = $8,
-		    portfolio_files = $9
+		    portfolio_files = $9,
+		    is_accepting_bookings = COALESCE($10, is_accepting_bookings)
 		WHERE owner_user_id = $1
 		RETURNING id
 	`
@@ -295,6 +309,7 @@ func (h *VendorHandler) UpdateVendor(c *gin.Context) {
 		req.PortfolioImageURL,
 		req.GalleryImages,
 		req.PortfolioFiles,
+		req.IsAcceptingBookings,
 	).Scan(&id)
 
 	if err != nil {
