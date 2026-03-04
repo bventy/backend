@@ -131,7 +131,8 @@ func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 			u.full_name, u.profile_image_url,
 			COALESCE(rs.avg_rating, 0) as average_rating,
 			COALESCE(rs.review_count, 0) as review_count,
-			vp.is_accepting_bookings
+			vp.is_accepting_bookings,
+			vp.owner_user_id
 		FROM vendor_profiles vp
 		JOIN users u ON vp.owner_user_id = u.id
 		LEFT JOIN (
@@ -152,14 +153,14 @@ func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 
 	var vendors []gin.H
 	for rows.Next() {
-		var id, name, slug, category, city, bio, whatsappLink string
+		var id, name, slug, category, city, bio, whatsappLink, ownerUserID string
 		var portfolioImageURL, ownerFullName, ownerProfileImage *string
 		var galleryImages []string
 		var avgRating float64
 		var reviewCount int
 		var isAcceptingBookings bool
 
-		if err := rows.Scan(&id, &name, &slug, &category, &city, &bio, &whatsappLink, &portfolioImageURL, &galleryImages, &ownerFullName, &ownerProfileImage, &avgRating, &reviewCount, &isAcceptingBookings); err != nil {
+		if err := rows.Scan(&id, &name, &slug, &category, &city, &bio, &whatsappLink, &portfolioImageURL, &galleryImages, &ownerFullName, &ownerProfileImage, &avgRating, &reviewCount, &isAcceptingBookings, &ownerUserID); err != nil {
 			continue
 		}
 		vendors = append(vendors, gin.H{
@@ -177,6 +178,7 @@ func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 			"average_rating":        avgRating,
 			"review_count":          reviewCount,
 			"is_accepting_bookings": isAcceptingBookings,
+			"owner_user_id":         ownerUserID,
 		})
 	}
 
@@ -191,7 +193,8 @@ func (h *VendorHandler) GetVendorBySlug(c *gin.Context) {
 			u.full_name, u.profile_image_url,
 			COALESCE(rs.avg_rating, 0) as average_rating,
 			COALESCE(rs.review_count, 0) as review_count,
-			vp.is_accepting_bookings
+			vp.is_accepting_bookings,
+			vp.owner_user_id
 		FROM vendor_profiles vp
 		JOIN users u ON vp.owner_user_id = u.id
 		LEFT JOIN (
