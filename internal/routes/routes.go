@@ -41,6 +41,7 @@ func RegisterRoutes(r *gin.Engine) {
 	r.GET("/health", handlers.HealthCheck)
 	r.GET("/vendors", vendorHandler.ListVerifiedVendors)
 	r.GET("/vendors/slug/:slug", vendorHandler.GetVendorBySlug)
+	r.GET("/vendors/slug/:slug/details", vendorHandler.GetPublicVendorDetails)
 	r.GET("/vendors/:id/reviews", reviewHandler.GetVendorReviews)
 
 	// Media Upload (Protected? or Public? usually protected)
@@ -91,8 +92,20 @@ func RegisterRoutes(r *gin.Engine) {
 		}
 
 		// Vendor profiles & Management (Non-gated parts)
-		protected.GET("/vendor/me", vendorHandler.GetMyProfile)
 		protected.PUT("/vendor/me", vendorHandler.UpdateVendor)
+
+		// Vendor Services & Pricing
+		protected.GET("/vendor/services", vendorHandler.GetVendorServices)
+		protected.POST("/vendor/services", vendorHandler.AddVendorService)
+		protected.PUT("/vendor/services/:id", vendorHandler.UpdateVendorService)
+		protected.DELETE("/vendor/services/:id", vendorHandler.DeleteVendorService)
+		protected.GET("/vendor/pricing-rules", vendorHandler.GetVendorPricingRules)
+		protected.PUT("/vendor/pricing-rules", vendorHandler.UpdateVendorPricingRules)
+		protected.GET("/vendor/cancellation-policy", vendorHandler.GetVendorCancellationPolicy)
+		protected.PUT("/vendor/cancellation-policy", vendorHandler.UpdateVendorCancellationPolicy)
+		protected.GET("/vendor/service-areas", vendorHandler.GetVendorServiceAreas)
+		protected.POST("/vendor/service-areas", vendorHandler.AddVendorServiceArea)
+		protected.DELETE("/vendor/service-areas/:id", vendorHandler.DeleteVendorServiceArea)
 
 		// Vendor Workspace
 		protected.GET("/vendor/overview", workspaceHandler.GetVendorOverview)
