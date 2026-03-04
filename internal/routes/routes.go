@@ -132,6 +132,7 @@ func RegisterRoutes(r *gin.Engine) {
 		protected.GET("/quotes/:id/contact", quotesHandler.GetQuoteContact)
 		protected.PATCH("/quotes/vendor/confirm/:id", quotesHandler.ConfirmQuoteByVendor)
 		protected.PATCH("/quotes/vendor/reject/:id", quotesHandler.RejectQuoteByVendor)
+		protected.POST("/quotes/manual", quotesHandler.CreateManualQuote)
 
 		// Messaging
 		protected.GET("/conversations", messagingHandler.GetConversations)

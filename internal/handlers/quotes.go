@@ -36,6 +36,16 @@ type RevisionPayload struct {
 	Message string `json:"message"`
 }
 
+type CreateManualLeadPayload struct {
+	EventTitle  string `json:"event_title" binding:"required"`
+	EventDate   string `json:"event_date" binding:"required"`
+	EventType   string `json:"event_type"`
+	Organizer   string `json:"organizer" binding:"required"` // Name of the organizer
+	Budget      string `json:"budget"`
+	Notes       string `json:"notes"`
+	ContactInfo string `json:"contact_info"`
+}
+
 // POST /quotes/request (Organizers only)
 func (h *QuotesHandler) CreateQuoteRequest(c *gin.Context) {
 	userID, exists := c.Get("userID")
@@ -170,7 +180,7 @@ func (h *QuotesHandler) GetVendorQuotes(c *gin.Context) {
 		SELECT qr.id, qr.event_id, e.title as event_title, qr.organizer_user_id, u.full_name as organizer_name, 
 		       qr.message, qr.quoted_price, qr.vendor_response, qr.status, qr.responded_at, qr.created_at, qr.budget_range,
 		       qr.special_requirements, qr.deadline, qr.attachment_url, qr.accepted_at, qr.rejected_at, qr.revision_requested_at, qr.contact_unlocked_at,
-		       qr.contact_expires_at, qr.archived_at, qr.revision_message
+		       qr.contact_expires_at, qr.archived_at, qr.revision_message, e.event_date, e.event_type
 		FROM quote_requests qr
 		JOIN events e ON qr.event_id = e.id
 		JOIN users u ON qr.organizer_user_id = u.id
@@ -187,14 +197,14 @@ func (h *QuotesHandler) GetVendorQuotes(c *gin.Context) {
 	var quotes []gin.H
 	for rows.Next() {
 		var id, eventID, eventTitle, organizerID, organizerName, status string
-		var message, vendorResponse, budgetRange, specialReq, attachmentURL, revisionMsg *string
+		var message, vendorResponse, budgetRange, specialReq, attachmentURL, revisionMsg, eventType *string
 		var quotedPrice *float64
-		var respondedAt, createdAt, acceptedAt, rejectedAt, revisionAt, unlockedAt, expiresAt, archivedAt, deadline interface{}
+		var respondedAt, createdAt, acceptedAt, rejectedAt, revisionAt, unlockedAt, expiresAt, archivedAt, deadline, eventDate interface{}
 
 		err := rows.Scan(
 			&id, &eventID, &eventTitle, &organizerID, &organizerName, &message, &quotedPrice, &vendorResponse, &status,
 			&respondedAt, &createdAt, &budgetRange, &specialReq, &deadline, &attachmentURL, &acceptedAt, &rejectedAt, &revisionAt, &unlockedAt,
-			&expiresAt, &archivedAt, &revisionMsg,
+			&expiresAt, &archivedAt, &revisionMsg, &eventDate, &eventType,
 		)
 		if err != nil {
 			log.Printf("Error scanning vendor quote row: %v", err)
@@ -934,4 +944,62 @@ func (h *QuotesHandler) ConfirmQuoteByVendor(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Hold confirmed successfully"})
+}
+
+// POST /quotes/manual (Vendors only)
+func (h *QuotesHandler) CreateManualQuote(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var payload CreateManualLeadPayload
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx := c.Request.Context()
+
+	// Get vendor ID
+	var vendorID string
+	err := db.Pool.QueryRow(ctx, "SELECT id FROM vendor_profiles WHERE owner_user_id::text = $1", userID.(string)).Scan(&vendorID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Vendor profile not found"})
+		return
+	}
+
+	// 1. Create a "Ghost" Event for this manual lead
+	var eventID string
+	err = db.Pool.QueryRow(ctx, `
+		INSERT INTO events (title, event_type, event_date, organizer_user_id, status)
+		VALUES ($1, $2, $3, $4, 'draft')
+		RETURNING id
+	`, payload.EventTitle, payload.EventType, payload.EventDate, userID.(string)).Scan(&eventID)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create ghost event: " + err.Error()})
+		return
+	}
+
+	// 2. Create the Quote Request
+	var quoteID string
+	err = db.Pool.QueryRow(ctx, `
+		INSERT INTO quote_requests (
+			event_id, vendor_id, organizer_user_id, message, budget_range, status, internal_notes
+		)
+		VALUES ($1, $2, $3, $4, $5, 'accepted', $6)
+		RETURNING id
+	`, eventID, vendorID, userID.(string), "Manual Entry: "+payload.Organizer, payload.Budget, payload.Notes).Scan(&quoteID)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create manual lead: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":  "Manual lead created successfully",
+		"quote_id": quoteID,
+	})
 }
