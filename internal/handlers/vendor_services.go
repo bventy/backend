@@ -237,16 +237,25 @@ func (h *VendorHandler) GetVendorCancellationPolicy(c *gin.Context) {
 	}
 
 	var policy struct {
-		PolicyType string `json:"policy_type"`
-		CustomText string `json:"custom_text"`
+		PolicyType       string `json:"policy_type"`
+		StrictnessLevel  string `json:"strictness_level"`
+		TimeFrameDays    int    `json:"time_frame_days"`
+		RefundPercentage int    `json:"refund_percentage"`
+		CustomText       string `json:"custom_text"`
 	}
 
 	err = db.Pool.QueryRow(c.Request.Context(),
-		"SELECT policy_type, COALESCE(custom_text, '') FROM vendor_cancellation_policies WHERE vendor_id = $1",
-		vendorID).Scan(&policy.PolicyType, &policy.CustomText)
+		"SELECT policy_type, strictness_level, time_frame_days, refund_percentage, COALESCE(custom_text, '') FROM vendor_cancellation_policies WHERE vendor_id = $1",
+		vendorID).Scan(&policy.PolicyType, &policy.StrictnessLevel, &policy.TimeFrameDays, &policy.RefundPercentage, &policy.CustomText)
 
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"policy_type": "moderate", "custom_text": ""})
+		c.JSON(http.StatusOK, gin.H{
+			"policy_type":       "flexible",
+			"strictness_level":  "flexible",
+			"time_frame_days":   1,
+			"refund_percentage": 100,
+			"custom_text":       "",
+		})
 		return
 	}
 
@@ -262,8 +271,11 @@ func (h *VendorHandler) UpdateVendorCancellationPolicy(c *gin.Context) {
 	}
 
 	var req struct {
-		PolicyType string `json:"policy_type" binding:"required"`
-		CustomText string `json:"custom_text"`
+		PolicyType       string `json:"policy_type" binding:"required"`
+		StrictnessLevel  string `json:"strictness_level"`
+		TimeFrameDays    int    `json:"time_frame_days"`
+		RefundPercentage int    `json:"refund_percentage"`
+		CustomText       string `json:"custom_text"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -272,15 +284,18 @@ func (h *VendorHandler) UpdateVendorCancellationPolicy(c *gin.Context) {
 	}
 
 	query := `
-		INSERT INTO vendor_cancellation_policies (vendor_id, policy_type, custom_text)
-		VALUES ($1, $2, $3)
+		INSERT INTO vendor_cancellation_policies (vendor_id, policy_type, strictness_level, time_frame_days, refund_percentage, custom_text)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (vendor_id) DO UPDATE SET
 			policy_type = EXCLUDED.policy_type,
+			strictness_level = EXCLUDED.strictness_level,
+			time_frame_days = EXCLUDED.time_frame_days,
+			refund_percentage = EXCLUDED.refund_percentage,
 			custom_text = EXCLUDED.custom_text,
 			updated_at = now()
 	`
 
-	_, err = db.Pool.Exec(c.Request.Context(), query, vendorID, req.PolicyType, req.CustomText)
+	_, err = db.Pool.Exec(c.Request.Context(), query, vendorID, req.PolicyType, req.StrictnessLevel, req.TimeFrameDays, req.RefundPercentage, req.CustomText)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update cancellation policy"})
 		return
@@ -407,10 +422,18 @@ func (h *VendorHandler) GetPublicVendorDetails(c *gin.Context) {
 
 	// Fetch Policy
 	var policy gin.H
-	var ptype, ptext string
-	err = db.Pool.QueryRow(c.Request.Context(), "SELECT policy_type, COALESCE(custom_text, '') FROM vendor_cancellation_policies WHERE vendor_id = $1", vendorID).Scan(&ptype, &ptext)
+	var ptype, ptext, pslevel string
+	var pdays, prefund int
+	err = db.Pool.QueryRow(c.Request.Context(), "SELECT policy_type, strictness_level, time_frame_days, refund_percentage, COALESCE(custom_text, '') FROM vendor_cancellation_policies WHERE vendor_id = $1", vendorID).
+		Scan(&ptype, &pslevel, &pdays, &prefund, &ptext)
 	if err == nil {
-		policy = gin.H{"type": ptype, "text": ptext}
+		policy = gin.H{
+			"type":              ptype,
+			"strictness_level":  pslevel,
+			"time_frame_days":   pdays,
+			"refund_percentage": prefund,
+			"text":              ptext,
+		}
 	}
 
 	// Fetch Areas

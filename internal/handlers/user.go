@@ -86,8 +86,9 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 
 	// Check profiles
 	var vendorExists bool
-	var dummy int
-	err = db.Pool.QueryRow(c.Request.Context(), "SELECT 1 FROM vendor_profiles WHERE owner_user_id=$1", userID).Scan(&dummy)
+	var vendorSlug *string
+	var dummy string
+	err = db.Pool.QueryRow(c.Request.Context(), "SELECT id, slug FROM vendor_profiles WHERE owner_user_id=$1", userID).Scan(&dummy, &vendorSlug)
 	vendorExists = err == nil
 
 	// Fetch groups
@@ -119,6 +120,7 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 		"role":                  role,
 		"email_verified":        emailVerified,
 		"vendor_profile_exists": vendorExists,
+		"vendor_slug":           vendorSlug,
 		"groups":                groups,
 	})
 }
