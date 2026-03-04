@@ -436,9 +436,9 @@ func (h *QuotesHandler) GetQuoteById(c *gin.Context) {
 
 	type QuoteDetail struct {
 		ID                  string     `json:"id"`
-		Status              string     `json:"status"`
-		Message             string     `json:"message"`
-		Deadline            *string    `json:"deadline"`
+		Status              *string    `json:"status"`
+		Message             *string    `json:"message"`
+		Deadline            *time.Time `json:"deadline"`
 		BudgetRange         *string    `json:"budget_range"`
 		SpecialRequirements *string    `json:"special_requirements"`
 		QuotedPrice         *float64   `json:"quoted_price"`
@@ -454,13 +454,13 @@ func (h *QuotesHandler) GetQuoteById(c *gin.Context) {
 		InternalNotes       *string    `json:"internal_notes"`
 
 		Event struct {
-			ID        string    `json:"id"`
-			Title     string    `json:"title"`
-			EventDate time.Time `json:"event_date"`
-			City      string    `json:"city"`
-			EventType *string   `json:"event_type"`
-			BudgetMin *int      `json:"budget_min"`
-			BudgetMax *int      `json:"budget_max"`
+			ID        string     `json:"id"`
+			Title     string     `json:"title"`
+			EventDate *time.Time `json:"event_date"`
+			City      *string    `json:"city"`
+			EventType *string    `json:"event_type"`
+			BudgetMin *int       `json:"budget_min"`
+			BudgetMax *int       `json:"budget_max"`
 		} `json:"event"`
 
 		Organizer struct {
@@ -500,7 +500,8 @@ func (h *QuotesHandler) GetQuoteById(c *gin.Context) {
 	)
 
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Quote not found"})
+		log.Printf("ERROR: Failed to scan quote %s: %v", quoteID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load lead details due to scanning error"})
 		return
 	}
 
