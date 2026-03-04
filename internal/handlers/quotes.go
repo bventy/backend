@@ -429,6 +429,86 @@ func (h *QuotesHandler) RejectQuote(c *gin.Context) {
 }
 
 // PATCH /quotes/revision/:id
+func (h *QuotesHandler) GetQuoteById(c *gin.Context) {
+	quoteID := c.Param("id")
+	userID, _ := c.Get("userID")
+	ctx := c.Request.Context()
+
+	type QuoteDetail struct {
+		ID                  string     `json:"id"`
+		Status              string     `json:"status"`
+		Message             string     `json:"message"`
+		Deadline            *string    `json:"deadline"`
+		BudgetRange         *string    `json:"budget_range"`
+		SpecialRequirements *string    `json:"special_requirements"`
+		QuotedPrice         *float64   `json:"quoted_price"`
+		VendorResponse      *string    `json:"vendor_response"`
+		AttachmentURL       *string    `json:"attachment_url"`
+		CreatedAt           time.Time  `json:"created_at"`
+		RespondedAt         *time.Time `json:"responded_at"`
+		AcceptedAt          *time.Time `json:"accepted_at"`
+		RejectedAt          *time.Time `json:"rejected_at"`
+		RevisionRequestedAt *time.Time `json:"revision_requested_at"`
+		RevisionMessage     *string    `json:"revision_message"`
+
+		Event struct {
+			ID          string    `json:"id"`
+			Title       string    `json:"title"`
+			EventDate   time.Time `json:"event_date"`
+			City        string    `json:"city"`
+			Description *string   `json:"description"`
+			GuestCount  *int      `json:"guest_count"`
+		} `json:"event"`
+
+		Organizer struct {
+			FullName string `json:"full_name"`
+		} `json:"organizer"`
+
+		Vendor struct {
+			ID           string `json:"id"`
+			BusinessName string `json:"business_name"`
+		} `json:"vendor"`
+	}
+
+	var q QuoteDetail
+	var vendorOwnerID, organizerID string
+	err := db.Pool.QueryRow(ctx, `
+		SELECT 
+			qr.id, qr.status, qr.message, qr.deadline, qr.budget_range, qr.special_requirements,
+			qr.quoted_price, qr.vendor_response, qr.attachment_url, qr.created_at,
+			qr.responded_at, qr.accepted_at, qr.rejected_at, qr.revision_requested_at, qr.revision_message,
+			e.id, e.title, e.event_date, e.city, e.description,
+			u.full_name,
+			vp.id, vp.business_name,
+			vp.owner_user_id, qr.organizer_user_id
+		FROM quote_requests qr
+		JOIN events e ON qr.event_id = e.id
+		JOIN users u ON qr.organizer_user_id = u.id
+		JOIN vendor_profiles vp ON qr.vendor_id = vp.id
+		WHERE qr.id = $1
+	`, quoteID).Scan(
+		&q.ID, &q.Status, &q.Message, &q.Deadline, &q.BudgetRange, &q.SpecialRequirements,
+		&q.QuotedPrice, &q.VendorResponse, &q.AttachmentURL, &q.CreatedAt,
+		&q.RespondedAt, &q.AcceptedAt, &q.RejectedAt, &q.RevisionRequestedAt, &q.RevisionMessage,
+		&q.Event.ID, &q.Event.Title, &q.Event.EventDate, &q.Event.City, &q.Event.Description,
+		&q.Organizer.FullName,
+		&q.Vendor.ID, &q.Vendor.BusinessName,
+		&vendorOwnerID, &organizerID,
+	)
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Quote not found"})
+		return
+	}
+
+	if userID.(string) != vendorOwnerID && userID.(string) != organizerID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You do not have access to this quote"})
+		return
+	}
+
+	c.JSON(http.StatusOK, q)
+}
+
 func (h *QuotesHandler) RequestRevision(c *gin.Context) {
 	var payload RevisionPayload
 	if err := c.ShouldBindJSON(&payload); err != nil {

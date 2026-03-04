@@ -97,16 +97,17 @@ func (h *WorkspaceHandler) GetVendorOverview(c *gin.Context) {
 		log.Printf("ERROR getting profile views: %v", err)
 	}
 
-	// 5. Tentative Holds: Top 3 pending quote requests
+	// 5. Tentative Holds: Top 3 active quote requests (pending, responded, etc.)
 	type TentativeHold struct {
 		ID        string    `json:"id"`
 		Title     string    `json:"title"`
-		ExpiresIn string    `json:"expires_in"` // Placeholder or derived from deadline
+		Status    string    `json:"status"`
+		ExpiresIn string    `json:"expires_in"`
 		CreatedAt time.Time `json:"created_at"`
 	}
 	var tentativeHolds []TentativeHold
 	holdRows, err := db.Pool.Query(ctx, `
-		SELECT qr.id, e.title, qr.created_at
+		SELECT qr.id, e.title, qr.status, qr.deadline, qr.created_at
 		FROM quote_requests qr
 		JOIN events e ON qr.event_id = e.id
 		WHERE qr.vendor_id = $1 AND qr.status IN ('pending', 'responded', 'revision_requested')
@@ -117,17 +118,35 @@ func (h *WorkspaceHandler) GetVendorOverview(c *gin.Context) {
 		defer holdRows.Close()
 		for holdRows.Next() {
 			var h TentativeHold
-			if err := holdRows.Scan(&h.ID, &h.Title, &h.CreatedAt); err == nil {
-				// Simple logic for expires_in: distance from NOW to 48h after created_at
-				expiry := h.CreatedAt.Add(48 * time.Hour)
-				if time.Now().After(expiry) {
-					h.ExpiresIn = "Expired"
-				} else {
-					hoursLeft := int(expiry.Sub(time.Now()).Hours())
-					if hoursLeft > 24 {
-						h.ExpiresIn = "Expires in 2 days"
+			var deadline *string
+			if err := holdRows.Scan(&h.ID, &h.Title, &h.Status, &deadline, &h.CreatedAt); err == nil {
+				h.ExpiresIn = "No deadline"
+				if deadline != nil && *deadline != "" {
+					// Try to parse deadline as a date (YYYY-MM-DD or similar)
+					d, err := time.Parse("2006-01-02", *deadline)
+					if err == nil {
+						daysLeft := int(time.Until(d).Hours() / 24)
+						if daysLeft < 0 {
+							h.ExpiresIn = "Expired"
+						} else if daysLeft == 0 {
+							h.ExpiresIn = "Expires today"
+						} else {
+							h.ExpiresIn = fmt.Sprintf("Expires in %d days", daysLeft)
+						}
 					} else {
+						// Fallback: just show the text if it's not a standard date
+						h.ExpiresIn = *deadline
+					}
+				} else {
+					// Default: quotes usually expire in 3 days if no deadline set
+					expiresAt := h.CreatedAt.Add(72 * time.Hour)
+					hoursLeft := int(time.Until(expiresAt).Hours())
+					if hoursLeft < 0 {
+						h.ExpiresIn = "Expired"
+					} else if hoursLeft < 24 {
 						h.ExpiresIn = fmt.Sprintf("Expires in %d hours", hoursLeft)
+					} else {
+						h.ExpiresIn = fmt.Sprintf("Expires in %d days", hoursLeft/24)
 					}
 				}
 				tentativeHolds = append(tentativeHolds, h)
