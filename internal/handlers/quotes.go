@@ -436,98 +436,6 @@ func (h *QuotesHandler) RequestRevision(c *gin.Context) {
 	h.updateQuoteStatusByOrganizer(c, "revision_requested", payload.Message)
 }
 
-// GET /quotes/:id/contact
-func (h *QuotesHandler) GetQuoteContact(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	quoteID := c.Param("id")
-	ctx := c.Request.Context()
-
-	// 0. Lazy check for this specific quote
-	h.lazyUpdateQuotesAndEvents(ctx, userID.(string))
-
-	// 1. Get quote details and verify authorization
-	var status, organizerID, vendorID, eventID string
-	var archivedAt, expiresAt interface{}
-	query := `SELECT status, organizer_user_id, vendor_id, event_id, archived_at, contact_expires_at FROM quote_requests WHERE id = $1`
-	err := db.Pool.QueryRow(ctx, query, quoteID).Scan(&status, &organizerID, &vendorID, &eventID, &archivedAt, &expiresAt)
-	if err != nil {
-		log.Printf("ERROR: Failed to fetch quote contact info (%s): %v", quoteID, err)
-		c.JSON(http.StatusNotFound, gin.H{"error": "Quote not found or internal error"})
-		return
-	}
-
-	// 2. Authorization: Only the involved organizer or the vendor can access this
-	isOrganizer := organizerID == userID.(string)
-
-	// Check if user is the vendor
-	var isVendor bool
-	var actualVendorID string
-	_ = db.Pool.QueryRow(ctx, "SELECT id FROM vendor_profiles WHERE owner_user_id = $1", userID.(string)).Scan(&actualVendorID)
-	if actualVendorID == vendorID {
-		isVendor = true
-	}
-
-	if !isOrganizer && !isVendor {
-		c.JSON(http.StatusForbidden, gin.H{"error": "You are not authorized to view contact information for this quote"})
-		return
-	}
-
-	// 4. Strict Gating: Only allowed if status is 'accepted' and NOT archived/expired
-	if status != "accepted" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Contact information is only available for accepted quotes"})
-		return
-	}
-	if archivedAt != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Contact access has expired and quote is archived."})
-		return
-	}
-
-	// 5. Fetch contact details
-	var vendorWhatsApp, vendorPhone, vendorEmail *string
-	var organizerName, organizerPhone, organizerEmail *string
-
-	// Vendor contacts (from vendor_profiles and users)
-	vendorQuery := `
-		SELECT vp.whatsapp_link, u.phone, u.email 
-		FROM vendor_profiles vp
-		JOIN users u ON vp.owner_user_id = u.id
-		WHERE vp.id = $1
-	`
-	err = db.Pool.QueryRow(ctx, vendorQuery, vendorID).Scan(&vendorWhatsApp, &vendorPhone, &vendorEmail)
-	if err != nil {
-		log.Printf("ERROR: Failed to fetch vendor contacts: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch vendor contacts"})
-		return
-	}
-
-	// Organizer contacts (from users)
-	organizerQuery := `SELECT full_name, phone, email FROM users WHERE id = $1`
-	err = db.Pool.QueryRow(ctx, organizerQuery, organizerID).Scan(&organizerName, &organizerPhone, &organizerEmail)
-	if err != nil {
-		log.Printf("ERROR: Failed to fetch organizer contacts: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch organizer contacts"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"vendor": gin.H{
-			"whatsapp": vendorWhatsApp,
-			"phone":    vendorPhone,
-			"email":    vendorEmail,
-		},
-		"organizer": gin.H{
-			"name":  organizerName,
-			"phone": organizerPhone,
-			"email": organizerEmail,
-		},
-	})
-}
-
 func (h *QuotesHandler) updateQuoteStatusByOrganizer(c *gin.Context, newStatus string, revisionMessage string) {
 	userID, exists := c.Get("userID")
 	if !exists {
@@ -754,4 +662,85 @@ func (h *QuotesHandler) lazyUpdateQuotesAndEvents(ctx context.Context, userID st
 			}
 		}
 	}
+}
+
+// PATCH /quotes/vendor/reject/:id
+func (h *QuotesHandler) RejectQuoteByVendor(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	quoteID := c.Param("id")
+	ctx := c.Request.Context()
+
+	// Verify vendor ownership
+	var vendorID string
+	err := db.Pool.QueryRow(ctx, "SELECT id FROM vendor_profiles WHERE owner_user_id = $1", userID.(string)).Scan(&vendorID)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Vendor profile not found"})
+		return
+	}
+
+	res, err := db.Pool.Exec(ctx, `
+		UPDATE quote_requests 
+		SET status = 'rejected', rejected_at = NOW(), updated_at = NOW() 
+		WHERE id = $1 AND vendor_id = $2
+	`, quoteID, vendorID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reject quote"})
+		return
+	}
+	if res.RowsAffected() == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Quote not found or unauthorized"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Quote rejected successfully"})
+}
+
+// PATCH /quotes/vendor/confirm/:id
+func (h *QuotesHandler) ConfirmQuoteByVendor(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	quoteID := c.Param("id")
+	ctx := c.Request.Context()
+
+	// Verify vendor ownership
+	var vendorID string
+	err := db.Pool.QueryRow(ctx, "SELECT id FROM vendor_profiles WHERE owner_user_id = $1", userID.(string)).Scan(&vendorID)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Vendor profile not found"})
+		return
+	}
+
+	// Move to 'responded' status
+	res, err := db.Pool.Exec(ctx, `
+		UPDATE quote_requests 
+		SET status = 'responded', responded_at = NOW(), updated_at = NOW() 
+		WHERE id = $1 AND vendor_id = $2 AND status = 'pending'
+	`, quoteID, vendorID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to confirm hold"})
+		return
+	}
+	if res.RowsAffected() == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Quote not found, already responded, or unauthorized"})
+		return
+	}
+
+	// Add a system message to the conversation
+	var convID string
+	err = db.Pool.QueryRow(ctx, "SELECT id FROM conversations WHERE quote_id = $1", quoteID).Scan(&convID)
+	if err == nil {
+		_, _ = db.Pool.Exec(ctx, `
+			INSERT INTO messages (conversation_id, sender_user_id, message_type, body)
+			VALUES ($1, $2, 'text', 'I have confirmed my availability for this date. Let’s discuss further!')
+		`, convID, userID.(string))
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Hold confirmed successfully"})
 }
