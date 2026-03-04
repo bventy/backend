@@ -142,6 +142,13 @@ func EmailVerified() gin.HandlerFunc {
 			return
 		}
 
+		// Always allow super_admin to bypass verification check
+		userRole, exists := c.Get("role")
+		if exists && userRole == "super_admin" {
+			c.Next()
+			return
+		}
+
 		var verified bool
 		err := db.Pool.QueryRow(context.Background(), "SELECT email_verified FROM users WHERE id = $1", userID).Scan(&verified)
 		if err != nil || !verified {
