@@ -122,6 +122,8 @@ func RegisterRoutes(r *gin.Engine) {
 		// Vendor Reviews
 		protected.POST("/vendors/:id/reviews", reviewHandler.CreateReview)
 		protected.GET("/vendors/:id/reviews/eligibility", reviewHandler.CheckEligibility)
+		protected.POST("/reviews/:id/reply", reviewHandler.ReplyToReview)
+		protected.POST("/reviews/:id/like", reviewHandler.LikeReview)
 
 		// Groups
 		protected.POST("/groups", groupHandler.CreateGroup)
