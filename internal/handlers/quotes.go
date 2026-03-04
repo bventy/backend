@@ -431,9 +431,68 @@ func (h *QuotesHandler) RejectQuote(c *gin.Context) {
 // PATCH /quotes/revision/:id
 func (h *QuotesHandler) RequestRevision(c *gin.Context) {
 	var payload RevisionPayload
-	_ = c.ShouldBindJSON(&payload) // Optional message
-
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Message is required for revision requests"})
+		return
+	}
 	h.updateQuoteStatusByOrganizer(c, "revision_requested", payload.Message)
+}
+
+func (h *QuotesHandler) GetQuoteContact(c *gin.Context) {
+	quoteID := c.Param("id")
+	userID, _ := c.Get("userID")
+	ctx := c.Request.Context()
+
+	var qr struct {
+		OrganizerUserID string
+		VendorUserID    string
+		Status          string
+		UnlockedAt      *time.Time
+	}
+
+	err := db.Pool.QueryRow(ctx, `
+		SELECT qr.organizer_user_id, vp.owner_user_id, qr.status, qr.contact_unlocked_at
+		FROM quote_requests qr
+		JOIN vendor_profiles vp ON qr.vendor_id = vp.id
+		WHERE qr.id = $1
+	`, quoteID).Scan(&qr.OrganizerUserID, &qr.VendorUserID, &qr.Status, &qr.UnlockedAt)
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Quote not found"})
+		return
+	}
+
+	if qr.OrganizerUserID != userID.(string) && qr.VendorUserID != userID.(string) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden"})
+		return
+	}
+
+	if qr.UnlockedAt == nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Contact not yet unlocked"})
+		return
+	}
+
+	var contact struct {
+		Name  string `json:"name"`
+		Email string `json:"email"`
+		Phone string `json:"phone"`
+	}
+
+	otherUserID := qr.OrganizerUserID
+	if userID.(string) == qr.OrganizerUserID {
+		otherUserID = qr.VendorUserID
+	}
+
+	err = db.Pool.QueryRow(ctx, `
+		SELECT full_name, email, phone FROM users WHERE id = $1
+	`, otherUserID).Scan(&contact.Name, &contact.Email, &contact.Phone)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch contact info"})
+		return
+	}
+
+	c.JSON(http.StatusOK, contact)
 }
 
 func (h *QuotesHandler) updateQuoteStatusByOrganizer(c *gin.Context, newStatus string, revisionMessage string) {

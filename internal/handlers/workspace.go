@@ -109,7 +109,7 @@ func (h *WorkspaceHandler) GetVendorOverview(c *gin.Context) {
 		SELECT qr.id, e.title, qr.created_at
 		FROM quote_requests qr
 		JOIN events e ON qr.event_id = e.id
-		WHERE qr.vendor_id = $1 AND qr.status = 'pending'
+		WHERE qr.vendor_id = $1 AND qr.status IN ('pending', 'responded', 'revision_requested')
 		ORDER BY qr.created_at DESC
 		LIMIT 3
 	`, vendorID)
