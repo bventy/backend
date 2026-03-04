@@ -102,14 +102,15 @@ func (h *MessagingHandler) GetMessages(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	// Validate access exists
-	var vendorID string
-	_ = db.Pool.QueryRow(ctx, "SELECT id FROM vendor_profiles WHERE owner_user_id = $1", userID.(string)).Scan(&vendorID)
-
+	authQuery := `
+		SELECT 1 FROM conversations c
+		JOIN vendor_profiles v ON c.vendor_id = v.id
+		WHERE c.id = $1::uuid AND (c.organizer_user_id = $2::uuid OR v.owner_user_id = $2::uuid)
+	`
 	var hasAccess int
-	authQuery := `SELECT 1 FROM conversations WHERE id = $1::uuid AND (organizer_user_id = $2::uuid OR vendor_id = $3::uuid)`
-	if err := db.Pool.QueryRow(ctx, authQuery, conversationID, userID.(string), vendorID).Scan(&hasAccess); err != nil {
+	if err := db.Pool.QueryRow(ctx, authQuery, conversationID, userID.(string)).Scan(&hasAccess); err != nil {
 		log.Printf("ACCESS DENIED for user %s to conv %s: %v", userID, conversationID, err)
-		c.JSON(http.StatusForbidden, gin.H{"error": "You do not have access to this conversation", "details": err.Error()})
+		c.JSON(http.StatusForbidden, gin.H{"error": "You do not have access to this conversation"})
 		return
 	}
 
@@ -192,21 +193,19 @@ func (h *MessagingHandler) SendMessage(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	// 1. Authorization & Locking check
-	var vendorID string
-	_ = db.Pool.QueryRow(ctx, "SELECT id FROM vendor_profiles WHERE owner_user_id = $1", userID.(string)).Scan(&vendorID)
-
 	var chatLocked bool
 	var quoteStatus string
 	checkQuery := `
 		SELECT c.chat_locked, qr.status 
 		FROM conversations c 
 		JOIN quote_requests qr ON c.quote_id = qr.id 
-		WHERE c.id = $1::uuid AND (c.organizer_user_id = $2::uuid OR c.vendor_id = $3::uuid)
+		JOIN vendor_profiles v ON c.vendor_id = v.id
+		WHERE c.id = $1::uuid AND (c.organizer_user_id = $2::uuid OR v.owner_user_id = $2::uuid)
 	`
-	err := db.Pool.QueryRow(ctx, checkQuery, conversationID, userID.(string), vendorID).Scan(&chatLocked, &quoteStatus)
+	err := db.Pool.QueryRow(ctx, checkQuery, conversationID, userID.(string)).Scan(&chatLocked, &quoteStatus)
 	if err != nil {
 		log.Printf("SEND DENIED for user %s to conv %s: %v", userID, conversationID, err)
-		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied or conversation not found", "details": err.Error()})
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied or conversation not found"})
 		return
 	}
 
