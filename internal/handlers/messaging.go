@@ -134,11 +134,8 @@ func (h *MessagingHandler) GetMessages(c *gin.Context) {
 	`
 	rows, err := db.Pool.Query(ctx, query, conversationID)
 	if err != nil {
-		log.Printf("[MESSAGING DEBUG] FAILED fetching messages for conv %s (User %s): %v", conversationID, userID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to fetch messages",
-			"details": err.Error(),
-		})
+		log.Printf("ERROR fetching messages for %s: %v", conversationID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch messages"})
 		return
 	}
 	defer rows.Close()
