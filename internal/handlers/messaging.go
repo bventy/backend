@@ -327,6 +327,7 @@ func (h *MessagingHandler) ToggleReaction(c *gin.Context) {
 		WHERE c.id = $1::uuid AND m.id = $2::uuid AND (c.organizer_user_id = $3::uuid OR v.owner_user_id = $3::uuid)
 	`
 	if err := db.Pool.QueryRow(ctx, verifyQuery, conversationID, messageID, userID.(string)).Scan(&count); err != nil {
+		log.Printf("[REACTION DEBUG] VERIFY FAILED for user %s, msg %s, conv %s: %v", userID, messageID, conversationID, err)
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied or message not found"})
 		return
 	}
@@ -337,13 +338,15 @@ func (h *MessagingHandler) ToggleReaction(c *gin.Context) {
 	tag, _ := db.Pool.Exec(ctx, deleteQuery, messageID, userID.(string), payload.Reaction)
 	if tag.RowsAffected() > 0 {
 		deleted = true
+		log.Printf("[REACTION DEBUG] Deleted reaction %s from msg %s by user %s", payload.Reaction, messageID, userID)
 	} else {
 		insertQuery := `INSERT INTO message_reactions (message_id, user_id, reaction) VALUES ($1, $2, $3)`
 		if _, err := db.Pool.Exec(ctx, insertQuery, messageID, userID.(string), payload.Reaction); err != nil {
-			log.Printf("REACTION INSERT ERROR: %v", err)
+			log.Printf("[REACTION DEBUG] INSERT ERROR for user %s, msg %s: %v", userID, messageID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to toggle reaction"})
 			return
 		}
+		log.Printf("[REACTION DEBUG] Inserted reaction %s to msg %s by user %s", payload.Reaction, messageID, userID)
 	}
 
 	// 3. Fetch final reactions for this message to broadcast
