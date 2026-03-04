@@ -36,7 +36,6 @@ func (h *WorkspaceHandler) GetVendorOverview(c *gin.Context) {
 	// 2. Fetch Aggregated Metrics
 	var urgentRequests int
 	var avgResponseTimeHours float64
-	var upcomingBookings int
 	var profileViews int
 
 	// Urgent Requests: Pending quotes requested more than 24 hours ago OR Event is within 7 days
@@ -60,14 +59,33 @@ func (h *WorkspaceHandler) GetVendorOverview(c *gin.Context) {
 		log.Printf("ERROR getting response time: %v", err)
 	}
 
-	// Upcoming Bookings: Accepted quotes for events in the future
-	err = db.Pool.QueryRow(ctx, `
-		SELECT COUNT(*) FROM quote_requests qr
+	// Upcoming Bookings: Detailed list of top 3 future accepted quotes
+	type UpcomingBooking struct {
+		ID        string    `json:"id"`
+		Title     string    `json:"title"`
+		EventDate time.Time `json:"event_date"`
+		Status    string    `json:"status"`
+	}
+	var upcomingBookingsList []UpcomingBooking
+	bookingRows, err := db.Pool.Query(ctx, `
+		SELECT qr.id, e.title, e.event_date, qr.status
+		FROM quote_requests qr
 		JOIN events e ON qr.event_id = e.id
 		WHERE qr.vendor_id = $1 AND qr.status = 'accepted' AND e.event_date >= CURRENT_DATE
-	`, vendorID).Scan(&upcomingBookings)
-	if err != nil {
-		log.Printf("ERROR getting upcoming bookings: %v", err)
+		ORDER BY e.event_date ASC
+		LIMIT 3
+	`, vendorID)
+	if err == nil {
+		defer bookingRows.Close()
+		for bookingRows.Next() {
+			var b UpcomingBooking
+			if err := bookingRows.Scan(&b.ID, &b.Title, &b.EventDate, &b.Status); err == nil {
+				upcomingBookingsList = append(upcomingBookingsList, b)
+			}
+		}
+	}
+	if upcomingBookingsList == nil {
+		upcomingBookingsList = []UpcomingBooking{}
 	}
 
 	// Profile Views: Last 30 days
@@ -124,7 +142,7 @@ func (h *WorkspaceHandler) GetVendorOverview(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"urgent_requests":   urgentRequests,
 		"avg_response_time": avgResponseTimeHours, // in hours
-		"upcoming_bookings": upcomingBookings,
+		"upcoming_bookings": upcomingBookingsList,
 		"profile_views":     profileViews,
 		"tentative_holds":   tentativeHolds,
 	})
