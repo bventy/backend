@@ -157,6 +157,34 @@ func (h *AdminHandler) UpdateUserRole(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "User role updated successfully"})
 }
 
+func (h *AdminHandler) VerifyUser(c *gin.Context) {
+	userID := c.Param("id")
+	query := `UPDATE users SET email_verified = true WHERE id = $1 RETURNING id`
+	var id string
+	err := db.Pool.QueryRow(context.Background(), query, userID).Scan(&id)
+	if err != nil {
+		log.Printf("[VerifyUser] Failed to verify user %s: %v", userID, err)
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "User verified successfully"})
+}
+
+func (h *AdminHandler) UnverifyUser(c *gin.Context) {
+	userID := c.Param("id")
+	query := `UPDATE users SET email_verified = false WHERE id = $1 RETURNING id`
+	var id string
+	err := db.Pool.QueryRow(context.Background(), query, userID).Scan(&id)
+	if err != nil {
+		log.Printf("[UnverifyUser] Failed to unverify user %s: %v", userID, err)
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "User unverified successfully"})
+}
+
 func (h *AdminHandler) DeleteUser(c *gin.Context) {
 	targetUserID := c.Param("id")
 

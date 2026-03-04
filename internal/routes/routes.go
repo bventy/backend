@@ -172,6 +172,8 @@ func RegisterRoutes(r *gin.Engine) {
 
 			// User Management
 			adminRoutes.GET("/users", adminHandler.GetUsers)
+			adminRoutes.PATCH("/users/:id/verify", adminHandler.VerifyUser)
+			adminRoutes.PATCH("/users/:id/unverify", adminHandler.UnverifyUser)
 			adminRoutes.DELETE("/users/:id", adminHandler.DeleteUser)
 
 			// Role Management (Super Admin Only)
