@@ -34,27 +34,38 @@ func (h *ReviewHandler) CreateReview(c *gin.Context) {
 
 	ctx := c.Request.Context()
 
-	// Strict Gating: Verify user has an accepted quote for a completed/past event
+	// 1. Resolve Vendor ID (might be slug or UUID)
+	var resolvedVendorID string
+	resolveQuery := `
+		SELECT id FROM vendor_profiles 
+		WHERE id::text = $1 OR slug = $1
+	`
+	err := db.Pool.QueryRow(ctx, resolveQuery, vendorID).Scan(&resolvedVendorID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Vendor not found"})
+		return
+	}
+
+	// 2. Strict Gating: Verify user has an accepted quote for a completed/past event
 	// If req.QuoteID is provided, we check that specific one.
 	// If not, we check if they have ANY such quote.
 
 	eligibilityQuery := `
-		SELECT qr.id
+		SELECT qr.id::text
 		FROM quote_requests qr
 		JOIN events e ON qr.event_id = e.id
 		WHERE qr.organizer_user_id::text = $1 
-		  AND qr.vendor_id::text = $2 
+		  AND qr.vendor_id = $2 
 		  AND qr.status = 'accepted'
 		  AND (e.status = 'completed' OR e.event_date < NOW())
 	`
 
 	var validQuoteID string
-	var err error
 	if req.QuoteID != "" {
-		eligibilityQuery += " AND qr.id = $3"
-		err = db.Pool.QueryRow(ctx, eligibilityQuery, organizerID, vendorID, req.QuoteID).Scan(&validQuoteID)
+		eligibilityQuery += " AND qr.id::text = $3"
+		err = db.Pool.QueryRow(ctx, eligibilityQuery, organizerID, resolvedVendorID, req.QuoteID).Scan(&validQuoteID)
 	} else {
-		err = db.Pool.QueryRow(ctx, eligibilityQuery, organizerID, vendorID).Scan(&validQuoteID)
+		err = db.Pool.QueryRow(ctx, eligibilityQuery, organizerID, resolvedVendorID).Scan(&validQuoteID)
 	}
 
 	if err != nil {
@@ -64,7 +75,7 @@ func (h *ReviewHandler) CreateReview(c *gin.Context) {
 		return
 	}
 
-	// Insert review
+	// 3. Insert review
 	query := `
 		INSERT INTO vendor_reviews (vendor_id, organizer_user_id, quote_id, rating, comment, is_public, helpful_count)
 		VALUES ($1, $2, $3, $4, $5, true, 0)
@@ -73,10 +84,10 @@ func (h *ReviewHandler) CreateReview(c *gin.Context) {
 
 	var reviewID string
 	var createdAt time.Time
-	err = db.Pool.QueryRow(ctx, query, vendorID, organizerID, validQuoteID, req.Rating, req.Comment).Scan(&reviewID, &createdAt)
+	err = db.Pool.QueryRow(ctx, query, resolvedVendorID, organizerID, validQuoteID, req.Rating, req.Comment).Scan(&reviewID, &createdAt)
 	if err != nil {
-		fmt.Printf("ERROR: Failed to submit review for vendor %s by user %s: %v\n", vendorID, organizerID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to submit review"})
+		fmt.Printf("ERROR: Failed to submit review for vendor %s (resolved: %s) by user %s: %v\n", vendorID, resolvedVendorID, organizerID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to submit review: " + err.Error()})
 		return
 	}
 
@@ -94,20 +105,31 @@ func (h *ReviewHandler) CheckEligibility(c *gin.Context) {
 
 	ctx := c.Request.Context()
 
+	// 1. Resolve Vendor ID
+	var resolvedVendorID string
+	resolveQuery := `
+		SELECT id FROM vendor_profiles 
+		WHERE id::text = $1 OR slug = $1
+	`
+	if err := db.Pool.QueryRow(ctx, resolveQuery, vendorID).Scan(&resolvedVendorID); err != nil {
+		c.JSON(http.StatusOK, gin.H{"eligible": false, "message": "Vendor not found"})
+		return
+	}
+
 	query := `
 		SELECT EXISTS (
 			SELECT 1
 			FROM quote_requests qr
 			JOIN events e ON qr.event_id = e.id
 			WHERE qr.organizer_user_id::text = $1 
-			  AND qr.vendor_id::text = $2 
+			  AND qr.vendor_id = $2 
 			  AND qr.status = 'accepted'
 			  AND (e.status = 'completed' OR e.event_date < NOW())
 		)
 	`
 
 	var isEligible bool
-	err := db.Pool.QueryRow(ctx, query, organizerID, vendorID).Scan(&isEligible)
+	err := db.Pool.QueryRow(ctx, query, organizerID, resolvedVendorID).Scan(&isEligible)
 	if err != nil {
 		fmt.Printf("ERROR: Failed to check review eligibility for vendor %s by user %s: %v\n", vendorID, organizerID, err)
 		c.JSON(http.StatusOK, gin.H{"eligible": false, "message": "Could not verify eligibility"})
