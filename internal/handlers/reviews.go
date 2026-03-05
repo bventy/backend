@@ -66,8 +66,8 @@ func (h *ReviewHandler) CreateReview(c *gin.Context) {
 
 	// Insert review
 	query := `
-		INSERT INTO vendor_reviews (vendor_id, organizer_user_id, quote_id, rating, comment)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO vendor_reviews (vendor_id, organizer_user_id, quote_id, rating, comment, is_public, helpful_count)
+		VALUES ($1, $2, $3, $4, $5, true, 0)
 		RETURNING id::text, created_at
 	`
 
@@ -132,7 +132,9 @@ func (h *ReviewHandler) GetVendorReviews(c *gin.Context) {
 		SELECT 
 			r.id, r.rating, r.comment, r.created_at, 
 			u.full_name as organizer_name, u.profile_image_url,
-			r.reply_text, r.replied_at, r.is_public, r.helpful_count
+			r.reply_text, r.replied_at, 
+			COALESCE(r.is_public, true), 
+			COALESCE(r.helpful_count, 0)
 		FROM vendor_reviews r
 		JOIN users u ON r.organizer_user_id = u.id
 		WHERE (r.vendor_id::text = $1 OR r.vendor_id = (SELECT id FROM vendor_profiles WHERE slug = $1))
@@ -154,7 +156,7 @@ func (h *ReviewHandler) GetVendorReviews(c *gin.Context) {
 	}
 
 	// Always show public reviews. Private ones might be filtered later for vendor dashboard.
-	query += " AND r.is_public = true"
+	query += " AND COALESCE(r.is_public, true) = true"
 
 	// Sorting
 	switch sort {
