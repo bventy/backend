@@ -3,18 +3,7 @@
 -- Extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Drop everything first (Cascade)
-DROP TABLE IF EXISTS "event_shortlisted_vendors" CASCADE;
-DROP TABLE IF EXISTS "events" CASCADE;
-DROP TABLE IF EXISTS "group_members" CASCADE;
-DROP TABLE IF EXISTS "groups" CASCADE;
-DROP TABLE IF EXISTS "vendor_portfolio_images" CASCADE; -- Keeping if needed, though not in V8 spec, good to have cleanup
-DROP TABLE IF EXISTS "organizer_bookmarks" CASCADE; -- Cleanup old
-DROP TABLE IF EXISTS "organizer_profiles" CASCADE; -- Cleanup old
-DROP TABLE IF EXISTS "vendor_profiles" CASCADE;
-DROP TABLE IF EXISTS "user_permissions" CASCADE;
-DROP TABLE IF EXISTS "permissions" CASCADE;
-DROP TABLE IF EXISTS "users" CASCADE;
+-- 1. Users Table
 
 -- 1. Users Table
 CREATE TABLE "public"."users" (

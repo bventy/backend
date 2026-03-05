@@ -93,6 +93,18 @@ func RunMigrations() {
 
 		version := file.Name()
 
+		// SAFETY CHECK: If we are about to run 001_init.sql, ensure the DB is actually empty.
+		// If it's not empty, we MUST NOT run init automatically as it might have destructive logic
+		// (even though we just removed the DROPs, it's a good pattern).
+		if version == "001_init.sql" {
+			var tableCount int
+			_ = Pool.QueryRow(ctx, "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name != 'schema_migrations'").Scan(&tableCount)
+			if tableCount > 0 {
+				fmt.Printf("⚠️ SAFETY: Skipping %s because the database is not empty. Please mark it as applied manually if needed.\n", version)
+				continue
+			}
+		}
+
 		// Check if migration already applied
 		var exists bool
 		err := Pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = $1)", version).Scan(&exists)
