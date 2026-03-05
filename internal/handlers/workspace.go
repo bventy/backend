@@ -188,3 +188,101 @@ func (h *WorkspaceHandler) GetVendorOverview(c *gin.Context) {
 		"is_accepting_bookings": isAcceptingBookings,
 	})
 }
+
+// GET /vendor/performance
+func (h *WorkspaceHandler) GetVendorPerformance(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	ctx := c.Request.Context()
+
+	// 1. Get Vendor ID
+	var vendorID string
+	err := db.Pool.QueryRow(ctx, "SELECT id FROM vendor_profiles WHERE owner_user_id = $1", userID.(string)).Scan(&vendorID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Vendor profile not found"})
+		return
+	}
+
+	// 2. 30-Day Summary Metrics
+	var summary struct {
+		QuoteCount     int     `json:"quote_count"`
+		AcceptanceRate float64 `json:"acceptance_rate"`
+		AvgRespTime    float64 `json:"avg_response_time"`
+		TotalViews     int     `json:"total_views"`
+	}
+
+	// Get total views from profile
+	_ = db.Pool.QueryRow(ctx, "SELECT views_count FROM vendor_profiles WHERE id = $1", vendorID).Scan(&summary.TotalViews)
+
+	// Get 30-day quote stats
+	err = db.Pool.QueryRow(ctx, `
+		SELECT 
+			COUNT(*),
+			COALESCE(SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0) * 100, 0),
+			COALESCE(EXTRACT(EPOCH FROM AVG(responded_at - created_at))/3600, 0)
+		FROM quote_requests
+		WHERE vendor_id = $1 AND created_at > NOW() - INTERVAL '30 days'
+	`, vendorID).Scan(&summary.QuoteCount, &summary.AcceptanceRate, &summary.AvgRespTime)
+
+	// 3. Conversion Funnel (All Time)
+	var funnel struct {
+		Requested   int `json:"requested"`
+		Responded   int `json:"responded"`
+		Negotiating int `json:"negotiating"`
+		Confirmed   int `json:"confirmed"`
+	}
+	err = db.Pool.QueryRow(ctx, `
+		SELECT 
+			COUNT(*),
+			SUM(CASE WHEN status != 'pending' THEN 1 ELSE 0 END),
+			SUM(CASE WHEN status IN ('responded', 'revision_requested') THEN 1 ELSE 0 END),
+			SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END)
+		FROM quote_requests
+		WHERE vendor_id = $1
+	`, vendorID).Scan(&funnel.Requested, &funnel.Responded, &funnel.Negotiating, &funnel.Confirmed)
+
+	// 4. Monthly Trends (Last 6 Months)
+	type TrendData struct {
+		Month     string `json:"month"`
+		Quotes    int    `json:"quotes"`
+		Confirmed int    `json:"confirmed"`
+	}
+	trends := []TrendData{}
+	trendRows, err := db.Pool.Query(ctx, `
+		SELECT 
+			TO_CHAR(month, 'Mon'),
+			COALESCE(q.count, 0),
+			COALESCE(c.count, 0)
+		FROM (
+			SELECT generate_series(
+				DATE_TRUNC('month', NOW() - INTERVAL '5 months'),
+				DATE_TRUNC('month', NOW()),
+				'1 month'
+			) AS month
+		) m
+		LEFT JOIN (
+			SELECT DATE_TRUNC('month', created_at) as month, COUNT(*) as count 
+			FROM quote_requests WHERE vendor_id = $1 GROUP BY 1
+		) q ON m.month = q.month
+		LEFT JOIN (
+			SELECT DATE_TRUNC('month', created_at) as month, COUNT(*) as count 
+			FROM quote_requests WHERE vendor_id = $1 AND status = 'accepted' GROUP BY 1
+		) c ON m.month = c.month
+		ORDER BY m.month ASC
+	`, vendorID)
+
+	if err == nil {
+		defer trendRows.Close()
+		for trendRows.Next() {
+			var t TrendData
+			if err := trendRows.Scan(&t.Month, &t.Quotes, &t.Confirmed); err == nil {
+				trends = append(trends, t)
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"summary": summary,
+		"funnel":  funnel,
+		"trends":  trends,
+	})
+}

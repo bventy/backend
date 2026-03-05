@@ -109,6 +109,7 @@ func RegisterRoutes(r *gin.Engine) {
 
 		// Vendor Workspace
 		protected.GET("/vendor/overview", workspaceHandler.GetVendorOverview)
+		protected.GET("/vendor/performance", workspaceHandler.GetVendorPerformance)
 		protected.GET("/vendor/calendar/events", calendarHandler.GetCalendarEvents)
 		protected.POST("/vendor/calendar/blocks", calendarHandler.CreateManualBlock)
 		protected.DELETE("/vendor/calendar/blocks/:id", calendarHandler.DeleteManualBlock)

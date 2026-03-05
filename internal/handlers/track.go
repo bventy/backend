@@ -48,7 +48,8 @@ func (h *TrackHandler) TrackActivity(c *gin.Context) {
 
 	// Smart View Tracking for Vendors
 	if payload.EntityType == "vendor" && payload.ActionType == "view" {
-		go h.updateVendorViewCount(payload.EntityID)
+		// Only count views if the actor is not the owner
+		go h.handleVendorView(payload.EntityID, actorUserID)
 	}
 
 	// Fire-and-forget: we don't care about the error returning to the client
@@ -56,8 +57,20 @@ func (h *TrackHandler) TrackActivity(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "tracked"})
 }
 
-func (h *TrackHandler) updateVendorViewCount(vendorID string) {
+func (h *TrackHandler) handleVendorView(vendorID string, actorUserID *string) {
 	ctx := context.Background()
+
+	// 1. Check if actor is the owner
+	if actorUserID != nil {
+		var ownerID string
+		err := db.Pool.QueryRow(ctx, "SELECT owner_user_id::text FROM vendor_profiles WHERE id::text = $1", vendorID).Scan(&ownerID)
+		if err == nil && ownerID == *actorUserID {
+			// Owner viewed their own profile - don't count
+			return
+		}
+	}
+
+	// 2. Proceeed with view count increment (Smart View logic)
 	var currentViews int64
 	err := db.Pool.QueryRow(ctx, "SELECT views_count FROM vendor_profiles WHERE id = $1", vendorID).Scan(&currentViews)
 	if err != nil {
