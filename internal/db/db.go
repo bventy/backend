@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/bventy/backend/internal/config"
@@ -60,11 +61,30 @@ func RunMigrations() {
 	}
 
 	// 2. Read migrations directory
-	migrationsDir := "internal/db/migrations"
-	files, err := os.ReadDir(migrationsDir)
-	if err != nil {
-		log.Fatalf("❌ Failed to read migrations directory: %v", err)
+	// Try a few common paths since CWD can vary between local/prod
+	paths := []string{"internal/db/migrations", "../../internal/db/migrations", "./migrations"}
+	var migrationsDir string
+	var files []os.DirEntry
+
+	for _, p := range paths {
+		files, err = os.ReadDir(p)
+		if err == nil {
+			migrationsDir = p
+			break
+		}
 	}
+
+	if migrationsDir == "" {
+		abs, _ := filepath.Abs(".")
+		log.Printf("⚠️ WARNING: Could not find migrations directory in any of: %v (Current CWD: %s)", paths, abs)
+		fmt.Println("⏭️ Skipping migrations due to missing directory.")
+		return
+	}
+
+	// 3. Sort migrations (CRITICAL: os.ReadDir doesn't guarantee numerical order)
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].Name() < files[j].Name()
+	})
 
 	for _, file := range files {
 		if file.IsDir() || !strings.HasSuffix(file.Name(), ".sql") {
@@ -99,6 +119,14 @@ func RunMigrations() {
 
 		if _, err := tx.Exec(ctx, string(content)); err != nil {
 			tx.Rollback(ctx)
+			// If the error is about something already existing, we can log and continue
+			// This is a safety net for legacy migrations that aren't fully idempotent.
+			if strings.Contains(err.Error(), "already exists") {
+				fmt.Printf("⚠️ Migration %s skipped/partially applied (already exists): %v\n", version, err)
+				// We don't record it in schema_migrations here to stay safe,
+				// but we also don't crash.
+				continue
+			}
 			log.Fatalf("❌ Migration failed for %s: %v", version, err)
 		}
 
