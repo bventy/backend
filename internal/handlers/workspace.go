@@ -210,6 +210,8 @@ func (h *WorkspaceHandler) GetVendorPerformance(c *gin.Context) {
 		AcceptanceRateDelta float64 `json:"acceptance_rate_delta"`
 		AvgRespTime         float64 `json:"avg_response_time"`
 		AvgRespTimeDelta    float64 `json:"avg_response_time_delta"`
+		ConversionRate      float64 `json:"conversion_rate"`
+		ConversionRateDelta float64 `json:"conversion_rate_delta"`
 		TotalViews          int     `json:"total_views"`
 		ViewsDelta          float64 `json:"views_delta"`
 	}
@@ -220,32 +222,36 @@ func (h *WorkspaceHandler) GetVendorPerformance(c *gin.Context) {
 	// Get Current 30-day stats
 	var current struct {
 		Count int
-		Rate  float64
+		Acc   float64
+		Conv  float64
 		Resp  float64
 	}
 	_ = db.Pool.QueryRow(ctx, `
 		SELECT 
 			COUNT(*),
+			COALESCE(SUM(CASE WHEN status NOT IN ('pending', 'rejected') THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0) * 100, 0),
 			COALESCE(SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0) * 100, 0),
 			COALESCE(EXTRACT(EPOCH FROM AVG(responded_at - created_at))/3600, 0)
 		FROM quote_requests
 		WHERE vendor_id = $1 AND created_at > NOW() - INTERVAL '30 days'
-	`, vendorID).Scan(&current.Count, &current.Rate, &current.Resp)
+	`, vendorID).Scan(&current.Count, &current.Acc, &current.Conv, &current.Resp)
 
 	// Get Previous 30-day stats (for deltas)
 	var prev struct {
 		Count int
-		Rate  float64
+		Acc   float64
+		Conv  float64
 		Resp  float64
 	}
 	_ = db.Pool.QueryRow(ctx, `
 		SELECT 
 			COUNT(*),
+			COALESCE(SUM(CASE WHEN status NOT IN ('pending', 'rejected') THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0) * 100, 0),
 			COALESCE(SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0) * 100, 0),
 			COALESCE(EXTRACT(EPOCH FROM AVG(responded_at - created_at))/3600, 0)
 		FROM quote_requests
 		WHERE vendor_id = $1 AND created_at <= NOW() - INTERVAL '30 days' AND created_at > NOW() - INTERVAL '60 days'
-	`, vendorID).Scan(&prev.Count, &prev.Rate, &prev.Resp)
+	`, vendorID).Scan(&prev.Count, &prev.Acc, &prev.Conv, &prev.Resp)
 
 	// Calculate Deltas
 	summary.QuoteCount = current.Count
@@ -255,8 +261,11 @@ func (h *WorkspaceHandler) GetVendorPerformance(c *gin.Context) {
 		summary.QuoteCountDelta = 100
 	}
 
-	summary.AcceptanceRate = current.Rate
-	summary.AcceptanceRateDelta = current.Rate - prev.Rate
+	summary.AcceptanceRate = current.Acc
+	summary.AcceptanceRateDelta = current.Acc - prev.Acc
+
+	summary.ConversionRate = current.Conv
+	summary.ConversionRateDelta = current.Conv - prev.Conv
 
 	summary.AvgRespTime = current.Resp
 	if prev.Resp > 0 {
