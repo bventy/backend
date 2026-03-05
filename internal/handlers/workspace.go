@@ -202,26 +202,78 @@ func (h *WorkspaceHandler) GetVendorPerformance(c *gin.Context) {
 		return
 	}
 
-	// 2. 30-Day Summary Metrics
+	// 2. Summary Metrics (Current 30 Days vs Previous 30 Days)
 	var summary struct {
-		QuoteCount     int     `json:"quote_count"`
-		AcceptanceRate float64 `json:"acceptance_rate"`
-		AvgRespTime    float64 `json:"avg_response_time"`
-		TotalViews     int     `json:"total_views"`
+		QuoteCount          int     `json:"quote_count"`
+		QuoteCountDelta     float64 `json:"quote_count_delta"`
+		AcceptanceRate      float64 `json:"acceptance_rate"`
+		AcceptanceRateDelta float64 `json:"acceptance_rate_delta"`
+		AvgRespTime         float64 `json:"avg_response_time"`
+		AvgRespTimeDelta    float64 `json:"avg_response_time_delta"`
+		TotalViews          int     `json:"total_views"`
+		ViewsDelta          float64 `json:"views_delta"`
 	}
 
 	// Get total views from profile
 	_ = db.Pool.QueryRow(ctx, "SELECT views_count FROM vendor_profiles WHERE id = $1", vendorID).Scan(&summary.TotalViews)
 
-	// Get 30-day quote stats
-	err = db.Pool.QueryRow(ctx, `
+	// Get Current 30-day stats
+	var current struct {
+		Count int
+		Rate  float64
+		Resp  float64
+	}
+	_ = db.Pool.QueryRow(ctx, `
 		SELECT 
 			COUNT(*),
 			COALESCE(SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0) * 100, 0),
 			COALESCE(EXTRACT(EPOCH FROM AVG(responded_at - created_at))/3600, 0)
 		FROM quote_requests
 		WHERE vendor_id = $1 AND created_at > NOW() - INTERVAL '30 days'
-	`, vendorID).Scan(&summary.QuoteCount, &summary.AcceptanceRate, &summary.AvgRespTime)
+	`, vendorID).Scan(&current.Count, &current.Rate, &current.Resp)
+
+	// Get Previous 30-day stats (for deltas)
+	var prev struct {
+		Count int
+		Rate  float64
+		Resp  float64
+	}
+	_ = db.Pool.QueryRow(ctx, `
+		SELECT 
+			COUNT(*),
+			COALESCE(SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0) * 100, 0),
+			COALESCE(EXTRACT(EPOCH FROM AVG(responded_at - created_at))/3600, 0)
+		FROM quote_requests
+		WHERE vendor_id = $1 AND created_at <= NOW() - INTERVAL '30 days' AND created_at > NOW() - INTERVAL '60 days'
+	`, vendorID).Scan(&prev.Count, &prev.Rate, &prev.Resp)
+
+	// Calculate Deltas
+	summary.QuoteCount = current.Count
+	if prev.Count > 0 {
+		summary.QuoteCountDelta = float64(current.Count-prev.Count) / float64(prev.Count) * 100
+	} else if current.Count > 0 {
+		summary.QuoteCountDelta = 100
+	}
+
+	summary.AcceptanceRate = current.Rate
+	summary.AcceptanceRateDelta = current.Rate - prev.Rate
+
+	summary.AvgRespTime = current.Resp
+	if prev.Resp > 0 {
+		// For response time, a negative delta is UP (improvement)
+		summary.AvgRespTimeDelta = (prev.Resp - current.Resp) / prev.Resp * 100
+	}
+
+	// Views Delta (using entity_type and action_type from TrackActivity)
+	var currentViews, prevViews int
+	_ = db.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM platform_activity_log WHERE entity_type = 'vendor' AND action_type = 'view' AND entity_id = $1 AND created_at > NOW() - INTERVAL '30 days'", vendorID).Scan(&currentViews)
+	_ = db.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM platform_activity_log WHERE entity_type = 'vendor' AND action_type = 'view' AND entity_id = $1 AND created_at <= NOW() - INTERVAL '30 days' AND created_at > NOW() - INTERVAL '60 days'", vendorID).Scan(&prevViews)
+
+	if prevViews > 0 {
+		summary.ViewsDelta = float64(currentViews-prevViews) / float64(prevViews) * 100
+	} else if currentViews > 0 {
+		summary.ViewsDelta = 100
+	}
 
 	// 3. Conversion Funnel (All Time)
 	var funnel struct {
@@ -249,7 +301,7 @@ func (h *WorkspaceHandler) GetVendorPerformance(c *gin.Context) {
 	trends := []TrendData{}
 	trendRows, err := db.Pool.Query(ctx, `
 		SELECT 
-			TO_CHAR(month, 'Mon'),
+			TO_CHAR(m.month, 'Mon'),
 			COALESCE(q.count, 0),
 			COALESCE(c.count, 0)
 		FROM (
