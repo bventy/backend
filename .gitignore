@@ -8,4 +8,4 @@ main
 # Temporary files
 tmp/
 *.log
-api
+/api

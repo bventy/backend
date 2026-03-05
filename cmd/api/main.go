@@ -22,6 +22,7 @@ func main() {
 
 	// Step 1: Connect DB
 	db.Connect(cfg)
+	db.RunMigrations()
 
 	// Step 1.5: Initialize Tracking
 	tracking.Init(cfg)
