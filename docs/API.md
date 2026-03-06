@@ -23,7 +23,7 @@ All API requests should be directed to:
 ### Authentication
 Bventy uses a dual-layered authentication system for security and cross-subdomain compatibility.
 
--   **Session Cookies**: Our primary method for web clients. Secure, HttpOnly, and SameSite cookies allow you to stay logged in across `app.bventy.in`, `partner.bventy.in`, and `auth.bventy.in`.
+-   **Session Cookies**: Our primary method for web clients. Secure, HttpOnly, and SameSite cookies allow you to stay logged in across `app.bventy.in`, `vendor.bventy.in`, and `auth.bventy.in`.
 -   **JWT Tokens**: For stateless requests, we provide a standard JSON Web Token (JWT) in the `Authorization` header.
 
 ```bash

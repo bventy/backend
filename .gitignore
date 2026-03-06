@@ -1,14 +1,6 @@
 # Binaries
 bin/
 main
-api
-check_users_schema
-/check_users_schema
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
 
 # Environment variables
 .env
