@@ -159,7 +159,9 @@ func (h *AdminMetricsHandler) GetAdminMetricsGrowth(c *gin.Context) {
 			`
 		}
 
-		var detail growthDetail
+		detail := growthDetail{
+			Series: []metricStat{},
+		}
 		rows, err := db.Pool.Query(ctx, querySeries, startDate)
 		if err == nil {
 			defer rows.Close()
