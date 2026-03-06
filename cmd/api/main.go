@@ -36,7 +36,7 @@ func main() {
 		"https://bventy.in",
 		"https://www.bventy.in",
 		"https://auth.bventy.in",
-		"https://vendor.bventy.in",
+		"https://partner.bventy.in",
 		"https://admin.bventy.in",
 		"https://app.bventy.in",
 		"http://localhost:3000",
@@ -47,7 +47,7 @@ func main() {
 		"http://www.lvh.me:3000",
 		"http://auth.lvh.me:3001",
 		"http://app.lvh.me:3002",
-		"http://vendor.lvh.me:3003",
+		"http://partner.lvh.me:3003",
 		"http://admin.lvh.me:3004",
 	}
 
