@@ -43,6 +43,7 @@ func RegisterRoutes(r *gin.Engine) {
 	r.GET("/vendors/slug/:slug", vendorHandler.GetVendorBySlug)
 	r.GET("/vendors/slug/:slug/details", vendorHandler.GetPublicVendorDetails)
 	r.GET("/vendors/:id/reviews", reviewHandler.GetVendorReviews)
+	r.POST("/track/activity", middleware.OptionalAuth(cfg), trackHandler.TrackActivity)
 
 	// Media Upload (Protected? or Public? usually protected)
 	// User didn't specify, but let's make it protected to prevent abuse.
@@ -74,8 +75,6 @@ func RegisterRoutes(r *gin.Engine) {
 		// Media
 		protected.POST("/media/upload", mediaHandler.Upload)
 
-		// Tracking
-		protected.POST("/track/activity", trackHandler.TrackActivity)
 
 		// Verification Gate (Restricted Actions)
 		verified := protected.Group("/")

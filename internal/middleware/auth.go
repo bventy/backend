@@ -14,15 +14,7 @@ import (
 
 func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-		if tokenString == "" {
-			// Fallback to cookie
-			cookie, err := c.Cookie("bventy_session")
-			if err == nil {
-				tokenString = cookie
-			}
-		}
+		tokenString := getAuthToken(c)
 
 		if tokenString == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization token required"})
@@ -41,6 +33,41 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 		c.Set("role", claims.Role)
 		c.Next()
 	}
+}
+
+// OptionalAuth captures userID if token is present, but doesn't block if missing
+func OptionalAuth(cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		tokenString := getAuthToken(c)
+		if tokenString == "" {
+			c.Next()
+			return
+		}
+
+		claims, err := auth.ValidateToken(tokenString, cfg)
+		if err != nil {
+			// If token is invalid, we just proceed as guest
+			c.Next()
+			return
+		}
+
+		c.Set("userID", claims.UserID)
+		c.Set("role", claims.Role)
+		c.Next()
+	}
+}
+
+func getAuthToken(c *gin.Context) string {
+	authHeader := c.GetHeader("Authorization")
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	if tokenString == "" {
+		// Fallback to cookie
+		cookie, err := c.Cookie("bventy_session")
+		if err == nil {
+			tokenString = cookie
+		}
+	}
+	return tokenString
 }
 
 // Role Hierarchy: super_admin > admin > staff > user

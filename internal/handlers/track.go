@@ -63,6 +63,7 @@ func (h *TrackHandler) handleVendorView(vendorID string, actorUserID *string) {
 	// 1. Check if actor is the owner
 	if actorUserID != nil {
 		var ownerID string
+		// Ensure we compare strings properly. Use COALESCE in scan if needed, but here we just check if it matches.
 		err := db.Pool.QueryRow(ctx, "SELECT owner_user_id::text FROM vendor_profiles WHERE id::text = $1", vendorID).Scan(&ownerID)
 		if err == nil && ownerID == *actorUserID {
 			// Owner viewed their own profile - don't count
@@ -72,26 +73,25 @@ func (h *TrackHandler) handleVendorView(vendorID string, actorUserID *string) {
 
 	// 2. Proceeed with view count increment (Smart View logic)
 	var currentViews int64
-	err := db.Pool.QueryRow(ctx, "SELECT views_count FROM vendor_profiles WHERE id = $1", vendorID).Scan(&currentViews)
+	err := db.Pool.QueryRow(ctx, "SELECT views_count FROM vendor_profiles WHERE id::text = $1", vendorID).Scan(&currentViews)
 	if err != nil {
 		return
 	}
 
-	increment := int64(0)
 	probability := 1.0
 
-	if currentViews < 100 {
-		increment = 1
+	// User requested "Live update till 50 at least"
+	if currentViews < 50 {
 		probability = 1.0
-	} else if currentViews < 1000 {
-		increment = 10
-		probability = 0.1
+	} else if currentViews < 200 {
+		probability = 0.5
+	} else if currentViews < 500 {
+		probability = 0.2
 	} else {
-		increment = 100
-		probability = 0.01
+		probability = 0.1
 	}
 
 	if rand.Float64() <= probability {
-		_, _ = db.Pool.Exec(ctx, "UPDATE vendor_profiles SET views_count = views_count + $1 WHERE id = $2", increment, vendorID)
+		_, _ = db.Pool.Exec(ctx, "UPDATE vendor_profiles SET views_count = views_count + 1 WHERE id::text = $1", vendorID)
 	}
 }
