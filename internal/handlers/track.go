@@ -92,6 +92,14 @@ func (h *TrackHandler) handleVendorView(vendorID string, actorUserID *string) {
 	}
 
 	if rand.Float64() <= probability {
+		// 1. Update the counter for dashboard performance
 		_, _ = db.Pool.Exec(ctx, "UPDATE vendor_profiles SET views_count = views_count + 1 WHERE id::text = $1", vendorID)
+
+		// 2. Insert detailed view log for Adminer/Analytics
+		insertViewQuery := `
+			INSERT INTO vendor_profile_views (vendor_id, viewer_user_id)
+			VALUES ($1, $2)
+		`
+		_, _ = db.Pool.Exec(ctx, insertViewQuery, vendorID, actorUserID)
 	}
 }
