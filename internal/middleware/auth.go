@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"strings"
 
@@ -116,7 +117,9 @@ func RequirePermission(requiredPermission string) gin.HandlerFunc {
 func AdminOnly() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userRole, exists := c.Get("role")
+		userID, _ := c.Get("userID")
 		if !exists {
+			log.Printf("[AdminOnly] Denied: User role missing from context (UserID: %v)", userID)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			c.Abort()
 			return
@@ -128,6 +131,7 @@ func AdminOnly() gin.HandlerFunc {
 			return
 		}
 
+		log.Printf("[AdminOnly] Denied: Insufficient role '%s' (UserID: %v)", roleStr, userID)
 		c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden: Admin access only"})
 		c.Abort()
 	}
