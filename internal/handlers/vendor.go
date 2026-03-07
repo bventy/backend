@@ -127,7 +127,7 @@ func (h *VendorHandler) GetMyProfile(c *gin.Context) {
 func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 	query := `
 		SELECT 
-			vp.id, vp.business_name, vp.slug, vp.category, vp.city, vp.bio, vp.whatsapp_link, vp.portfolio_image_url, vp.gallery_images,
+			vp.id, vp.business_name, vp.slug, vp.category, vp.city, COALESCE(vp.bio, '') as bio, vp.whatsapp_link, vp.portfolio_image_url, vp.gallery_images,
 			u.full_name, u.profile_image_url,
 			COALESCE(rs.avg_rating, 0) as average_rating,
 			COALESCE(rs.review_count, 0) as review_count,
@@ -161,6 +161,7 @@ func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 		var isAcceptingBookings bool
 
 		if err := rows.Scan(&id, &name, &slug, &category, &city, &bio, &whatsappLink, &portfolioImageURL, &galleryImages, &ownerFullName, &ownerProfileImage, &avgRating, &reviewCount, &isAcceptingBookings, &ownerUserID); err != nil {
+			fmt.Printf("ERROR: Failed to scan vendor row: %v\n", err)
 			continue
 		}
 		vendors = append(vendors, gin.H{
@@ -189,7 +190,7 @@ func (h *VendorHandler) GetVendorBySlug(c *gin.Context) {
 	slug := c.Param("slug")
 	query := `
 		SELECT 
-			vp.id, vp.business_name, vp.slug, vp.category, vp.city, vp.bio, vp.whatsapp_link, vp.portfolio_image_url, vp.gallery_images, vp.portfolio_files,
+			vp.id, vp.business_name, vp.slug, vp.category, vp.city, COALESCE(vp.bio, '') as bio, vp.whatsapp_link, vp.portfolio_image_url, vp.gallery_images, vp.portfolio_files,
 			u.full_name, u.profile_image_url,
 			COALESCE(rs.avg_rating, 0) as average_rating,
 			COALESCE(rs.review_count, 0) as review_count,
