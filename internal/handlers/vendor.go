@@ -127,8 +127,10 @@ func (h *VendorHandler) GetMyProfile(c *gin.Context) {
 func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 	query := `
 		SELECT 
-			vp.id, vp.business_name, vp.slug, vp.category, vp.city, COALESCE(vp.bio, '') as bio, vp.whatsapp_link, vp.portfolio_image_url, vp.gallery_images,
-			u.full_name, u.profile_image_url,
+			vp.id, vp.business_name, vp.slug, vp.category, vp.city, COALESCE(vp.bio, '') as bio, vp.whatsapp_link, 
+			COALESCE(vp.portfolio_image_url, '') as portfolio_image_url, 
+			COALESCE(vp.gallery_images, '{}') as gallery_images,
+			u.full_name, COALESCE(u.profile_image_url, '') as profile_image_url,
 			COALESCE(rs.avg_rating, 0) as average_rating,
 			COALESCE(rs.review_count, 0) as review_count,
 			vp.is_accepting_bookings,
@@ -153,8 +155,7 @@ func (h *VendorHandler) ListVerifiedVendors(c *gin.Context) {
 
 	var vendors []gin.H
 	for rows.Next() {
-		var id, name, slug, category, city, bio, whatsappLink, ownerUserID string
-		var portfolioImageURL, ownerFullName, ownerProfileImage *string
+		var id, name, slug, category, city, bio, whatsappLink, ownerUserID, portfolioImageURL, ownerFullName, ownerProfileImage string
 		var galleryImages []string
 		var avgRating float64
 		var reviewCount int
@@ -190,8 +191,11 @@ func (h *VendorHandler) GetVendorBySlug(c *gin.Context) {
 	slug := c.Param("slug")
 	query := `
 		SELECT 
-			vp.id, vp.business_name, vp.slug, vp.category, vp.city, COALESCE(vp.bio, '') as bio, vp.whatsapp_link, vp.portfolio_image_url, vp.gallery_images, vp.portfolio_files,
-			u.full_name, u.profile_image_url,
+			vp.id, vp.business_name, vp.slug, vp.category, vp.city, COALESCE(vp.bio, '') as bio, vp.whatsapp_link, 
+			COALESCE(vp.portfolio_image_url, '') as portfolio_image_url, 
+			COALESCE(vp.gallery_images, '{}') as gallery_images, 
+			COALESCE(vp.portfolio_files, '[]') as portfolio_files,
+			u.full_name, COALESCE(u.profile_image_url, '') as profile_image_url,
 			COALESCE(rs.avg_rating, 0) as average_rating,
 			COALESCE(rs.review_count, 0) as review_count,
 			vp.is_accepting_bookings,
@@ -206,8 +210,7 @@ func (h *VendorHandler) GetVendorBySlug(c *gin.Context) {
 		WHERE vp.slug = $1 AND vp.status = 'verified'
 	`
 
-	var id, name, s, category, city, bio, whatsappLink, ownerUserID string
-	var portfolioImageURL, ownerFullName, ownerProfileImage *string
+	var id, name, s, category, city, bio, whatsappLink, ownerUserID, portfolioImageURL, ownerFullName, ownerProfileImage string
 	var galleryImages []string
 	var portfolioFiles []interface{}
 	var avgRating float64
