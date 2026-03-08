@@ -27,7 +27,13 @@ func (s *CalendarSyncService) getGoogleService(ctx context.Context, vendorID str
 	var expiry time.Time
 	err := db.Pool.QueryRow(ctx, "SELECT access_token, refresh_token, expires_at FROM vendor_oauth_connections WHERE vendor_id = $1 AND provider = 'google'", vendorID).Scan(&access, &refresh, &expiry)
 	if err != nil {
+		log.Printf("[CalendarSync] Error fetching OAuth connection for vendor %s: %v", vendorID, err)
 		return nil, fmt.Errorf("no oauth connection for vendor %s: %v", vendorID, err)
+	}
+
+	if s.Config.GoogleClientID == "" || s.Config.GoogleClientSecret == "" {
+		log.Printf("[CalendarSync] Missing Google client credentials in config")
+		return nil, fmt.Errorf("google client credentials not configured")
 	}
 
 	tokenSource := (&oauth2.Config{
@@ -42,6 +48,7 @@ func (s *CalendarSyncService) getGoogleService(ctx context.Context, vendorID str
 
 	newToken, err := tokenSource.Token()
 	if err != nil {
+		log.Printf("[CalendarSync] Failed to refresh token for vendor %s: %v", vendorID, err)
 		return nil, fmt.Errorf("failed to get valid token: %v", err)
 	}
 
@@ -64,8 +71,11 @@ func (s *CalendarSyncService) SyncGoogleToBventy(vendorID string) error {
 	
 	events, err := srv.Events.List("primary").ShowDeleted(false).SingleEvents(true).TimeMin(tMin).TimeMax(tMax).Do()
 	if err != nil {
+		log.Printf("[CalendarSync] Google API List events failed for vendor %s: %v", vendorID, err)
 		return fmt.Errorf("unable to retrieve events: %v", err)
 	}
+
+	log.Printf("[CalendarSync] Retreived %d events for vendor %s", len(events.Items), vendorID)
 
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
