@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/bventy/backend/internal/config"
 	"github.com/bventy/backend/internal/db"
 	"github.com/bventy/backend/internal/services"
 	"github.com/bventy/backend/internal/websocket"
@@ -788,6 +789,17 @@ func (h *QuotesHandler) updateQuoteStatusByOrganizer(c *gin.Context, newStatus s
 						},
 					}
 				}
+
+				// 3. Trigger Google Calendar Sync
+				var vID string
+				err = db.Pool.QueryRow(ctx, "SELECT vendor_id FROM quote_requests WHERE id = $1", quoteID).Scan(&vID)
+				if err == nil && vID != "" {
+					syncService := services.NewCalendarSyncService(config.LoadConfig())
+					go func() {
+						_ = syncService.SyncGoogleToBventy(vID)
+						_ = syncService.PushBventyToGoogle(vID)
+					}()
+				}
 			}
 		}
 	} else {
@@ -1017,6 +1029,13 @@ func (h *QuotesHandler) CreateManualQuote(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create manual lead: " + err.Error()})
 		return
 	}
+
+	// Trigger sync
+	syncService := services.NewCalendarSyncService(config.LoadConfig())
+	go func() {
+		_ = syncService.SyncGoogleToBventy(vendorID)
+		_ = syncService.PushBventyToGoogle(vendorID)
+	}()
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":  "Manual lead created successfully",

@@ -22,25 +22,12 @@ func NewCalendarSyncService(cfg *config.Config) *CalendarSyncService {
 	return &CalendarSyncService{Config: cfg}
 }
 
-func (s *CalendarSyncService) getOAuthConfig() *oauth2.Config {
-	return &oauth2.Config{
-		ClientID:     s.Config.GoogleClientID,
-		ClientSecret: s.Config.GoogleClientSecret,
-		RedirectURL:  s.Config.GoogleRedirectURI,
-		Endpoint:     google.Endpoint,
-		Scopes:       []string{calendar.CalendarEventsScope, calendar.CalendarReadonlyScope},
-	}
-}
-
-func (s *CalendarSyncService) SyncGoogleToBventy(vendorID string) error {
-	ctx := context.Background()
-	
-	// 1. Get OAuth Connection
+func (s *CalendarSyncService) getGoogleService(ctx context.Context, vendorID string) (*calendar.Service, error) {
 	var access, refresh string
 	var expiry time.Time
 	err := db.Pool.QueryRow(ctx, "SELECT access_token, refresh_token, expires_at FROM vendor_oauth_connections WHERE vendor_id = $1 AND provider = 'google'", vendorID).Scan(&access, &refresh, &expiry)
 	if err != nil {
-		return fmt.Errorf("no oauth connection for vendor %s: %v", vendorID, err)
+		return nil, fmt.Errorf("no oauth connection for vendor %s: %v", vendorID, err)
 	}
 
 	tokenSource := (&oauth2.Config{
@@ -53,22 +40,25 @@ func (s *CalendarSyncService) SyncGoogleToBventy(vendorID string) error {
 		Expiry:       expiry,
 	})
 
-	// 2. Refresh token if needed and save
 	newToken, err := tokenSource.Token()
 	if err != nil {
-		return fmt.Errorf("failed to get valid token: %v", err)
+		return nil, fmt.Errorf("failed to get valid token: %v", err)
 	}
+
 	if newToken.AccessToken != access {
 		_, _ = db.Pool.Exec(ctx, "UPDATE vendor_oauth_connections SET access_token = $1, expires_at = $2, updated_at = NOW() WHERE vendor_id = $3", newToken.AccessToken, newToken.Expiry, vendorID)
 	}
 
-	srv, err := calendar.NewService(ctx, option.WithTokenSource(oauth2.StaticTokenSource(newToken)))
+	return calendar.NewService(ctx, option.WithTokenSource(oauth2.StaticTokenSource(newToken)))
+}
+
+func (s *CalendarSyncService) SyncGoogleToBventy(vendorID string) error {
+	ctx := context.Background()
+	srv, err := s.getGoogleService(ctx, vendorID)
 	if err != nil {
-		return fmt.Errorf("unable to retrieve Calendar client: %v", err)
+		return err
 	}
 
-	// 3. Fetch "Busy" events (Free/Busy API is better but for now let's use List)
-	// We'll fetch events from now to 3 months ahead
 	tMin := time.Now().Format(time.RFC3339)
 	tMax := time.Now().AddDate(0, 3, 0).Format(time.RFC3339)
 	
@@ -77,25 +67,17 @@ func (s *CalendarSyncService) SyncGoogleToBventy(vendorID string) error {
 		return fmt.Errorf("unable to retrieve events: %v", err)
 	}
 
-	// 4. Map and Save to Bventy (Idempotent: we match by a 'external_id' column if we had one, or clear and rebuild)
-	// For simplicity, let's add an 'external_id' column to vendor_calendar_blocks if it doesn't exist
-	// Or we can just use a specific type 'google_sync'
-	
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
 
-	// Clear old synced blocks
-	_, _ = tx.Exec(ctx, "DELETE FROM vendor_calendar_blocks WHERE vendor_id = $1 AND type = 'manual_block' AND title LIKE '[Google] %'", vendorID)
-
+	// Instead of deleting everything, we'll upsert based on google_event_id
 	for _, item := range events.Items {
 		if item.Status == "confirmed" {
 			title := "[Google] Busy"
-			if item.Summary != "" {
-				// title = "[Google] " + item.Summary // User preference might be to hide details
-			}
+			// If we wanted to show the private title, we could check scopes or preferences
 			
 			start, _ := time.Parse(time.RFC3339, item.Start.DateTime)
 			if item.Start.DateTime == "" {
@@ -108,12 +90,19 @@ func (s *CalendarSyncService) SyncGoogleToBventy(vendorID string) error {
 
 			isAllDay := item.Start.DateTime == ""
 
-			_, err = tx.Exec(ctx, `
-				INSERT INTO vendor_calendar_blocks (vendor_id, title, start_time, end_time, is_all_day, type)
-				VALUES ($1, $2, $3, $4, $5, 'manual_block')
-			`, vendorID, title, start, end, isAllDay)
+			query := `
+				INSERT INTO vendor_calendar_blocks (vendor_id, title, start_time, end_time, is_all_day, type, google_event_id)
+				VALUES ($1, $2, $3, $4, $5, 'manual_block', $6)
+				ON CONFLICT (google_event_id) DO UPDATE SET
+					title = EXCLUDED.title,
+					start_time = EXCLUDED.start_time,
+					end_time = EXCLUDED.end_time,
+					is_all_day = EXCLUDED.is_all_day,
+					updated_at = CURRENT_TIMESTAMP
+			`
+			_, err = tx.Exec(ctx, query, vendorID, title, start, end, isAllDay, item.Id)
 			if err != nil {
-				log.Printf("Failed to insert google event: %v", err)
+				log.Printf("Failed to upsert google event %s: %v", item.Id, err)
 			}
 		}
 	}
@@ -122,6 +111,89 @@ func (s *CalendarSyncService) SyncGoogleToBventy(vendorID string) error {
 }
 
 func (s *CalendarSyncService) PushBventyToGoogle(vendorID string) error {
-	// Future implementation: Push newly created Bventy bookings to Google
+	ctx := context.Background()
+	srv, err := s.getGoogleService(ctx, vendorID)
+	if err != nil {
+		return err
+	}
+
+	// 1. Sync Manual Blocks (that are NOT from Google)
+	rows, err := db.Pool.Query(ctx, `
+		SELECT id, title, start_time, end_time, is_all_day, google_event_id 
+		FROM vendor_calendar_blocks 
+		WHERE vendor_id = $1 AND google_event_id IS NULL AND type = 'manual_block'
+	`, vendorID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id, title string
+		var start, end time.Time
+		var isAllDay bool
+		var gID *string
+		if err := rows.Scan(&id, &title, &start, &end, &isAllDay, &gID); err == nil {
+			event := &calendar.Event{
+				Summary: title,
+				Start: &calendar.EventDateTime{
+					DateTime: start.Format(time.RFC3339),
+				},
+				End: &calendar.EventDateTime{
+					DateTime: end.Format(time.RFC3339),
+				},
+			}
+			if isAllDay {
+				event.Start = &calendar.EventDateTime{Date: start.Format("2006-01-02")}
+				event.End = &calendar.EventDateTime{Date: end.Format("2006-01-02")}
+			}
+
+			createdEvent, err := srv.Events.Insert("primary", event).Do()
+			if err == nil {
+				_, _ = db.Pool.Exec(ctx, "UPDATE vendor_calendar_blocks SET google_event_id = $1 WHERE id = $2", createdEvent.Id, id)
+			}
+		}
+	}
+
+	// 2. Sync Confirmed Bookings (Accepted Quote Requests)
+	quoteRows, err := db.Pool.Query(ctx, `
+		SELECT qr.id, e.title, e.event_date, qr.google_event_id
+		FROM quote_requests qr
+		JOIN events e ON qr.event_id = e.id
+		WHERE qr.vendor_id = $1 AND qr.status = 'accepted' AND qr.google_event_id IS NULL
+	`, vendorID)
+	if err == nil {
+		defer quoteRows.Close()
+		for quoteRows.Next() {
+			var id, title string
+			var eventDate time.Time
+			var gID *string
+			if err := quoteRows.Scan(&id, &title, &eventDate, &gID); err == nil {
+				event := &calendar.Event{
+					Summary: "Bventy Booking: " + title,
+					Description: "Confirmed booking via Bventy platform.",
+					Start: &calendar.EventDateTime{
+						Date: eventDate.Format("2006-01-02"),
+					},
+					End: &calendar.EventDateTime{
+						Date: eventDate.AddDate(0, 0, 1).Format("2006-01-02"),
+					},
+				}
+				createdEvent, err := srv.Events.Insert("primary", event).Do()
+				if err == nil {
+					_, _ = db.Pool.Exec(ctx, "UPDATE quote_requests SET google_event_id = $1 WHERE id = $2", createdEvent.Id, id)
+				}
+			}
+		}
+	}
+
 	return nil
+}
+
+func (s *CalendarSyncService) DeleteGoogleEvent(ctx context.Context, vendorID string, googleEventID string) error {
+	srv, err := s.getGoogleService(ctx, vendorID)
+	if err != nil {
+		return err
+	}
+	return srv.Events.Delete("primary", googleEventID).Do()
 }

@@ -1,11 +1,14 @@
 package handlers
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"time"
 
+	"github.com/bventy/backend/internal/config"
 	"github.com/bventy/backend/internal/db"
+	"github.com/bventy/backend/internal/services"
 	"github.com/gin-gonic/gin"
 )
 
@@ -16,13 +19,14 @@ func NewCalendarHandler() *CalendarHandler {
 }
 
 type CalendarEvent struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	StartTime time.Time `json:"start_time"`
-	EndTime   time.Time `json:"end_time"`
-	IsAllDay  bool      `json:"is_all_day"`
-	Type      string    `json:"type"` // manual_block, confirmed_booking, tentative_reserve
-	Details   *string   `json:"details,omitempty"`
+	ID             string    `json:"id"`
+	Title          string    `json:"title"`
+	StartTime      time.Time `json:"start_time"`
+	EndTime        time.Time `json:"end_time"`
+	IsAllDay       bool      `json:"is_all_day"`
+	Type           string    `json:"type"` // manual_block, confirmed_booking, tentative_reserve
+	Details        *string   `json:"details,omitempty"`
+	GoogleEventID  *string   `json:"google_event_id,omitempty"`
 }
 
 type CreateManualBlockRequest struct {
@@ -61,7 +65,7 @@ func (h *CalendarHandler) GetCalendarEvents(c *gin.Context) {
 
 	// First, fetch manual blocks
 	manualBlocksQuery := `
-		SELECT id, title, start_time, end_time, is_all_day, type
+		SELECT id, title, start_time, end_time, is_all_day, type, google_event_id
 		FROM vendor_calendar_blocks
 		WHERE vendor_id = $1 AND start_time >= $2 AND start_time <= $3
 	`
@@ -74,7 +78,7 @@ func (h *CalendarHandler) GetCalendarEvents(c *gin.Context) {
 
 	for rows.Next() {
 		var ev CalendarEvent
-		if err := rows.Scan(&ev.ID, &ev.Title, &ev.StartTime, &ev.EndTime, &ev.IsAllDay, &ev.Type); err == nil {
+		if err := rows.Scan(&ev.ID, &ev.Title, &ev.StartTime, &ev.EndTime, &ev.IsAllDay, &ev.Type, &ev.GoogleEventID); err == nil {
 			events = append(events, ev)
 		}
 	}
@@ -169,6 +173,13 @@ func (h *CalendarHandler) CreateManualBlock(c *gin.Context) {
 		return
 	}
 
+	// Trigger push to google
+	syncService := services.NewCalendarSyncService(config.LoadConfig())
+	go func() {
+		_ = syncService.SyncGoogleToBventy(vendorID)
+		_ = syncService.PushBventyToGoogle(vendorID)
+	}()
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Calendar block created",
 		"id":      insertedID,
@@ -192,6 +203,10 @@ func (h *CalendarHandler) DeleteManualBlock(c *gin.Context) {
 		return
 	}
 
+	// Delete from Google if it was a synced event
+	var gID *string
+	_ = db.Pool.QueryRow(ctx, "SELECT google_event_id FROM vendor_calendar_blocks WHERE id = $1", blockID).Scan(&gID)
+
 	query := `DELETE FROM vendor_calendar_blocks WHERE id = $1 AND vendor_id = $2`
 	res, err := db.Pool.Exec(ctx, query, blockID, vendorID)
 	if err != nil {
@@ -202,6 +217,13 @@ func (h *CalendarHandler) DeleteManualBlock(c *gin.Context) {
 	if res.RowsAffected() == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Block not found or unauthorized"})
 		return
+	}
+
+	if gID != nil && *gID != "" {
+		syncService := services.NewCalendarSyncService(config.LoadConfig())
+		go func() {
+			_ = syncService.DeleteGoogleEvent(context.Background(), vendorID, *gID)
+		}()
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Block deleted successfully"})
