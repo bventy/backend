@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/bventy/backend/internal/config"
@@ -85,6 +86,15 @@ func (s *CalendarSyncService) SyncGoogleToBventy(vendorID string) error {
 
 	totalSynced := 0
 	for _, cal := range calendarList.Items {
+		// Smart Filtering: Skip Holiday calendars and other "regular" non-manual calendars
+		// Common identifiers for holiday calendars: "holiday", "addressbook#contacts"
+		calSummary := cal.Summary
+		if cal.Id != "primary" && (cal.Id == "addressbook#contacts" || 
+			(calSummary != "" && (strings.Contains(calSummary, "Holiday") || strings.Contains(calSummary, "Festival")))) {
+			log.Printf("[CalendarSync] Skipping automated calendar: %s", calSummary)
+			continue
+		}
+
 		// Only sync calendars that are primary or selected by the user in their UI
 		if !cal.Selected && cal.Id != "primary" {
 			continue
@@ -99,6 +109,11 @@ func (s *CalendarSyncService) SyncGoogleToBventy(vendorID string) error {
 		}
 
 		for _, item := range events.Items {
+			// Skip recurring events to avoid cluttering with "regular stuff"
+			if item.RecurringEventId != "" || len(item.Recurrence) > 0 {
+				continue
+			}
+
 			if item.Status == "confirmed" {
 				title := item.Summary
 				if title == "" {
