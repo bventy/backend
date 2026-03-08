@@ -4,7 +4,7 @@
 ALTER TABLE "group_members" ADD COLUMN IF NOT EXISTS "updated_at" timestamp DEFAULT now();
 
 -- 2. Group Invites Table
-CREATE TABLE "public"."group_invites" (
+CREATE TABLE IF NOT EXISTS "public"."group_invites" (
     "id" uuid DEFAULT uuid_generate_v4() NOT NULL,
     "group_id" uuid NOT NULL,
     "invited_email" text NOT NULL,
@@ -17,5 +17,5 @@ CREATE TABLE "public"."group_invites" (
     CONSTRAINT "group_invites_invited_by_fkey" FOREIGN KEY (invited_by) REFERENCES users(id) ON DELETE CASCADE
 ) WITH (oids = false);
 
-CREATE INDEX idx_group_invites_email ON public.group_invites USING btree (invited_email);
-CREATE INDEX idx_group_invites_group ON public.group_invites USING btree (group_id);
+CREATE INDEX IF NOT EXISTS idx_group_invites_email ON public.group_invites USING btree (invited_email);
+CREATE INDEX IF NOT EXISTS idx_group_invites_group ON public.group_invites USING btree (group_id);
