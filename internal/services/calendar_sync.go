@@ -103,7 +103,7 @@ func (s *CalendarSyncService) SyncGoogleToBventy(vendorID string) error {
 			query := `
 				INSERT INTO vendor_calendar_blocks (vendor_id, title, start_time, end_time, is_all_day, type, google_event_id)
 				VALUES ($1, $2, $3, $4, $5, 'manual_block', $6)
-				ON CONFLICT (google_event_id) DO UPDATE SET
+				ON CONFLICT (vendor_id, google_event_id) WHERE google_event_id IS NOT NULL DO UPDATE SET
 					title = EXCLUDED.title,
 					start_time = EXCLUDED.start_time,
 					end_time = EXCLUDED.end_time,
