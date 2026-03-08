@@ -252,3 +252,67 @@ func (s *CalendarSyncService) DeleteGoogleEvent(ctx context.Context, vendorID st
 	}
 	return srv.Events.Delete("primary", googleEventID).Do()
 }
+
+func (s *CalendarSyncService) DisconnectGoogle(vendorID string) error {
+	ctx := context.Background()
+	srv, err := s.getGoogleService(ctx, vendorID)
+	if err != nil {
+		log.Printf("[CalendarSync] Disconnect: Failed to get Google service for vendor %s: %v", vendorID, err)
+		// We proceed to cleanup local DB anyway to ensure the user can at least disconnect
+	}
+
+	if srv != nil {
+		// 1. Delete Bventy-created events from Google
+		// Fetch manual blocks with Google IDs
+		rows, err := db.Pool.Query(ctx, "SELECT google_event_id FROM vendor_calendar_blocks WHERE vendor_id = $1 AND google_event_id IS NOT NULL", vendorID)
+		if err == nil {
+			for rows.Next() {
+				var gID string
+				if err := rows.Scan(&gID); err == nil && gID != "" {
+					_ = srv.Events.Delete("primary", gID).Do()
+				}
+			}
+			rows.Close()
+		}
+
+		// Fetch confirmed bookings with Google IDs
+		rows, err = db.Pool.Query(ctx, "SELECT google_event_id FROM quote_requests WHERE vendor_id::text = $1 AND google_event_id IS NOT NULL", vendorID)
+		if err == nil {
+			for rows.Next() {
+				var gID string
+				if err := rows.Scan(&gID); err == nil && gID != "" {
+					_ = srv.Events.Delete("primary", gID).Do()
+				}
+			}
+			rows.Close()
+		}
+	}
+
+	// 2. Perform Local Cleanup
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Remove synced events (Google -> Bventy)
+	// We only remove blocks that came from Google
+	_, err = tx.Exec(ctx, "DELETE FROM vendor_calendar_blocks WHERE vendor_id = $1 AND google_event_id IS NOT NULL", vendorID)
+	if err != nil {
+		return fmt.Errorf("failed to delete synced blocks: %v", err)
+	}
+
+	// Nullify Google IDs in bookings (Preserve the booking, just unlinked)
+	_, err = tx.Exec(ctx, "UPDATE quote_requests SET google_event_id = NULL WHERE vendor_id::text = $1", vendorID)
+	if err != nil {
+		return fmt.Errorf("failed to nullify booking google ids: %v", err)
+	}
+
+	// Remove OAuth connection
+	_, err = tx.Exec(ctx, "DELETE FROM vendor_oauth_connections WHERE vendor_id = $1", vendorID)
+	if err != nil {
+		return fmt.Errorf("failed to delete oauth connection: %v", err)
+	}
+
+	return tx.Commit(ctx)
+}
