@@ -66,16 +66,16 @@ func (s *CalendarSyncService) SyncGoogleToBventy(vendorID string) error {
 		return err
 	}
 
-	tMin := time.Now().Format(time.RFC3339)
-	tMax := time.Now().AddDate(0, 3, 0).Format(time.RFC3339)
-	
-	events, err := srv.Events.List("primary").ShowDeleted(false).SingleEvents(true).TimeMin(tMin).TimeMax(tMax).Do()
+	// 1. Get List of all calendars
+	calendarList, err := srv.CalendarList.List().Do()
 	if err != nil {
-		log.Printf("[CalendarSync] Google API List events failed for vendor %s: %v", vendorID, err)
-		return fmt.Errorf("unable to retrieve events: %v", err)
+		log.Printf("[CalendarSync] Failed to list calendars for vendor %s: %v", vendorID, err)
+		return fmt.Errorf("failed to list calendars: %v", err)
 	}
 
-	log.Printf("[CalendarSync] Retreived %d events for vendor %s", len(events.Items), vendorID)
+	// 2. Define sync window (1 month back to 6 months ahead)
+	tMin := time.Now().AddDate(0, -1, 0).Format(time.RFC3339)
+	tMax := time.Now().AddDate(0, 6, 0).Format(time.RFC3339)
 
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
@@ -83,48 +83,70 @@ func (s *CalendarSyncService) SyncGoogleToBventy(vendorID string) error {
 	}
 	defer tx.Rollback(ctx)
 
-	// Instead of deleting everything, we'll upsert based on google_event_id
-	for _, item := range events.Items {
-		if item.Status == "confirmed" {
-			title := item.Summary
-			if title == "" {
-				title = "Busy (Google)"
-			}
-			
-			var start, end time.Time
-			isAllDay := false
+	totalSynced := 0
+	for _, cal := range calendarList.Items {
+		// Only sync calendars that are primary or selected by the user in their UI
+		if !cal.Selected && cal.Id != "primary" {
+			continue
+		}
 
-			if item.Start.DateTime != "" {
-				start, _ = time.Parse(time.RFC3339, item.Start.DateTime)
-				end, _ = time.Parse(time.RFC3339, item.End.DateTime)
-			} else {
-				// All-day event
-				isAllDay = true
-				start, _ = time.Parse("2006-01-02", item.Start.Date)
-				// Google all-day end dates are exclusive, but Bventy treats end_time as inclusive end of slot
-				// We'll set it to 23:59:59 of the previous day if we want single day, 
-				// but Bventy's UI usually handles end-of-day well if we set it correctly.
-				tempEnd, _ := time.Parse("2006-01-02", item.End.Date)
-				end = tempEnd.Add(-1 * time.Second) // Set to 23:59:59 of the last day
-			}
+		log.Printf("[CalendarSync] Syncing calendar %s (%s) for vendor %s", cal.Summary, cal.Id, vendorID)
+		
+		events, err := srv.Events.List(cal.Id).ShowDeleted(false).SingleEvents(true).TimeMin(tMin).TimeMax(tMax).Do()
+		if err != nil {
+			log.Printf("[CalendarSync] Google API List events failed for calendar %s: %v", cal.Id, err)
+			continue
+		}
 
-			query := `
-				INSERT INTO vendor_calendar_blocks (vendor_id, title, start_time, end_time, is_all_day, type, google_event_id)
-				VALUES ($1, $2, $3, $4, $5, 'manual_block', $6)
-				ON CONFLICT (vendor_id, google_event_id) WHERE google_event_id IS NOT NULL DO UPDATE SET
-					title = EXCLUDED.title,
-					start_time = EXCLUDED.start_time,
-					end_time = EXCLUDED.end_time,
-					is_all_day = EXCLUDED.is_all_day,
-					updated_at = CURRENT_TIMESTAMP
-			`
-			_, err = tx.Exec(ctx, query, vendorID, title, start, end, isAllDay, item.Id)
-			if err != nil {
-				log.Printf("Failed to upsert google event %s: %v", item.Id, err)
+		for _, item := range events.Items {
+			if item.Status == "confirmed" {
+				title := item.Summary
+				if title == "" {
+					title = "Busy"
+				}
+				
+				var start, end time.Time
+				isAllDay := false
+
+				if item.Start.DateTime != "" {
+					start, _ = time.Parse(time.RFC3339, item.Start.DateTime)
+					end, _ = time.Parse(time.RFC3339, item.End.DateTime)
+				} else {
+					isAllDay = true
+					start, _ = time.Parse("2006-01-02", item.Start.Date)
+					// Handle exclusive end dates for all-day events
+					tempEnd, _ := time.Parse("2006-01-02", item.End.Date)
+					end = tempEnd.Add(-1 * time.Second)
+				}
+
+				// Title Preservation Logic:
+				// If we already have this event, and it's NOT a generic "Busy" title, 
+				// we might want to keep the local title if it was modified.
+				// However, for simplicity now, we overwrite unless the local title is "special".
+				// A better way is checking if 'type' is 'manual_block' and it wasn't originally from Google.
+				// But since we use google_event_id for conflict, we can assume Google is the source of truth for these.
+
+				query := `
+					INSERT INTO vendor_calendar_blocks (vendor_id, title, start_time, end_time, is_all_day, type, google_event_id)
+					VALUES ($1, $2, $3, $4, $5, 'manual_block', $6)
+					ON CONFLICT (vendor_id, google_event_id) WHERE google_event_id IS NOT NULL DO UPDATE SET
+						title = EXCLUDED.title,
+						start_time = EXCLUDED.start_time,
+						end_time = EXCLUDED.end_time,
+						is_all_day = EXCLUDED.is_all_day,
+						updated_at = CURRENT_TIMESTAMP
+				`
+				_, err = tx.Exec(ctx, query, vendorID, title, start, end, isAllDay, item.Id)
+				if err != nil {
+					log.Printf("Failed to upsert google event %s: %v", item.Id, err)
+				} else {
+					totalSynced++
+				}
 			}
 		}
 	}
 
+	log.Printf("[CalendarSync] Successfully synced %d events total for vendor %s", totalSynced, vendorID)
 	return tx.Commit(ctx)
 }
 
