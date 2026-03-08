@@ -99,7 +99,7 @@ func (h *AdminHandler) RejectVendor(c *gin.Context) {
 
 // User Management
 func (h *AdminHandler) GetUsers(c *gin.Context) {
-	query := `SELECT id, email, full_name, role, created_at FROM users`
+	query := `SELECT id, email, full_name, role, created_at, email_verified FROM users`
 	rows, err := db.Pool.Query(context.Background(), query)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch users"})
@@ -111,15 +111,17 @@ func (h *AdminHandler) GetUsers(c *gin.Context) {
 	for rows.Next() {
 		var id, email, fullName, role string
 		var createdAt interface{}
-		if err := rows.Scan(&id, &email, &fullName, &role, &createdAt); err != nil {
+		var emailVerified bool
+		if err := rows.Scan(&id, &email, &fullName, &role, &createdAt, &emailVerified); err != nil {
 			continue
 		}
 		users = append(users, gin.H{
-			"id":         id,
-			"email":      email,
-			"full_name":  fullName,
-			"role":       role,
-			"created_at": createdAt,
+			"id":             id,
+			"email":          email,
+			"full_name":      fullName,
+			"role":           role,
+			"created_at":     createdAt,
+			"email_verified": emailVerified,
 		})
 	}
 
