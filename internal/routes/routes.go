@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/bventy/backend/internal/config"
+	"github.com/bventy/backend/internal/db"
 	"github.com/bventy/backend/internal/handlers"
 	"github.com/bventy/backend/internal/middleware"
 	"github.com/bventy/backend/internal/services"
@@ -36,6 +37,8 @@ func RegisterRoutes(r *gin.Engine) {
 	trackHandler := handlers.NewTrackHandler()
 	reviewHandler := handlers.NewReviewHandler()
 	messagingHandler := handlers.NewMessagingHandler(hub)
+	oauthHandler := handlers.NewOAuthHandler(cfg)
+	syncService := services.NewCalendarSyncService(cfg)
 
 	// Public Routes
 	r.GET("/health", handlers.HealthCheck)
@@ -59,6 +62,10 @@ func RegisterRoutes(r *gin.Engine) {
 		authGroup.POST("/reset-password", authHandler.ResetPassword)
 		authGroup.POST("/resend-verification", authHandler.ResendVerification)
 		authGroup.GET("/debug", handlers.DebugCookies)
+
+		// Google OAuth
+		authGroup.GET("/google", middleware.AuthMiddleware(cfg), oauthHandler.InitGoogleAuth)
+		authGroup.GET("/google/callback", oauthHandler.GoogleCallback)
 	}
 
 	// Protected Routes (Require Auth)
@@ -112,6 +119,20 @@ func RegisterRoutes(r *gin.Engine) {
 		protected.GET("/vendor/calendar/events", calendarHandler.GetCalendarEvents)
 		protected.POST("/vendor/calendar/blocks", calendarHandler.CreateManualBlock)
 		protected.DELETE("/vendor/calendar/blocks/:id", calendarHandler.DeleteManualBlock)
+		protected.POST("/vendor/calendar/sync", func(c *gin.Context) {
+			userID, _ := c.Get("userID")
+			var vendorID string
+			err := db.Pool.QueryRow(c.Request.Context(), "SELECT id FROM vendor_profiles WHERE owner_user_id = $1", userID.(string)).Scan(&vendorID)
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Vendor not found"})
+				return
+			}
+			if err := syncService.SyncGoogleToBventy(vendorID); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"message": "Calendar synced successfully"})
+		})
 
 		// Vendor Gallery & Portfolio
 		protected.POST("/vendors/:id/gallery", vendorHandler.UploadGalleryImage)

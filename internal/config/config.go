@@ -27,6 +27,9 @@ type Config struct {
 	PostHogHost       string
 	ResendAPIKey      string
 	FromEmail         string
+	GoogleClientID     string
+	GoogleClientSecret string
+	GoogleRedirectURI  string
 }
 
 func LoadConfig() *Config {
@@ -55,6 +58,9 @@ func LoadConfig() *Config {
 		PostHogHost:       getEnv("POSTHOG_HOST", "https://us.i.posthog.com"),
 		ResendAPIKey:      getEnv("RESEND_API_KEY", ""),
 		FromEmail:         getEnv("FROM_EMAIL", "notifications@bventy.in"),
+		GoogleClientID:     getEnv("GOOGLE_CLIENT_ID", ""),
+		GoogleClientSecret: getEnv("GOOGLE_CLIENT_SECRET", ""),
+		GoogleRedirectURI:  getEnv("GOOGLE_REDIRECT_URI", "https://api.bventy.in/auth/google/callback"),
 	}
 }
 
