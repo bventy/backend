@@ -114,3 +114,68 @@ func (h *OAuthHandler) GoogleCallback(c *gin.Context) {
 	}
 	c.Redirect(http.StatusTemporaryRedirect, frontendURL)
 }
+// GET /vendor/calendar/sync/status
+func (h *OAuthHandler) GetGoogleSyncStatus(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	var vendorID string
+	err := db.Pool.QueryRow(c.Request.Context(), "SELECT id FROM vendor_profiles WHERE owner_user_id = $1", userID.(string)).Scan(&vendorID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Vendor not found"})
+		return
+	}
+
+	var exists bool
+	err = db.Pool.QueryRow(c.Request.Context(), "SELECT EXISTS(SELECT 1 FROM vendor_oauth_connections WHERE vendor_id = $1 AND provider = 'google')", vendorID).Scan(&exists)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"connected": exists})
+}
+
+// DELETE /vendor/calendar/sync
+func (h *OAuthHandler) DisconnectGoogleCalendar(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	var vendorID string
+	err := db.Pool.QueryRow(c.Request.Context(), "SELECT id FROM vendor_profiles WHERE owner_user_id = $1", userID.(string)).Scan(&vendorID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Vendor not found"})
+		return
+	}
+
+	tx, err := db.Pool.Begin(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+		return
+	}
+	defer tx.Rollback(c.Request.Context())
+
+	// 1. Delete OAuth connection
+	_, err = tx.Exec(c.Request.Context(), "DELETE FROM vendor_oauth_connections WHERE vendor_id = $1 AND provider = 'google'", vendorID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete connection"})
+		return
+	}
+
+	// 2. Delete synced calendar blocks
+	_, err = tx.Exec(c.Request.Context(), "DELETE FROM vendor_calendar_blocks WHERE vendor_id = $1 AND google_event_id IS NOT NULL", vendorID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete synced blocks"})
+		return
+	}
+
+	// 3. Nullify google_event_id in quote_requests
+	_, err = tx.Exec(c.Request.Context(), "UPDATE quote_requests SET google_event_id = NULL WHERE vendor_id = $1", vendorID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to clear booking sync markers"})
+		return
+	}
+
+	if err := tx.Commit(c.Request.Context()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Google Calendar disconnected and data cleaned up successfully"})
+}

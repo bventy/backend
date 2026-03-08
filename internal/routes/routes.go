@@ -133,6 +133,8 @@ func RegisterRoutes(r *gin.Engine) {
 			}
 			c.JSON(http.StatusOK, gin.H{"message": "Calendar synced successfully"})
 		})
+		protected.GET("/vendor/calendar/sync/status", oauthHandler.GetGoogleSyncStatus)
+		protected.DELETE("/vendor/calendar/sync", oauthHandler.DisconnectGoogleCalendar)
 
 		// Vendor Gallery & Portfolio
 		protected.POST("/vendors/:id/gallery", vendorHandler.UploadGalleryImage)
