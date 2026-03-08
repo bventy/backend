@@ -86,19 +86,27 @@ func (s *CalendarSyncService) SyncGoogleToBventy(vendorID string) error {
 	// Instead of deleting everything, we'll upsert based on google_event_id
 	for _, item := range events.Items {
 		if item.Status == "confirmed" {
-			title := "[Google] Busy"
-			// If we wanted to show the private title, we could check scopes or preferences
+			title := item.Summary
+			if title == "" {
+				title = "Busy (Google)"
+			}
 			
-			start, _ := time.Parse(time.RFC3339, item.Start.DateTime)
-			if item.Start.DateTime == "" {
-				start, _ = time.Parse("2006-01-02", item.Start.Date)
-			}
-			end, _ := time.Parse(time.RFC3339, item.End.DateTime)
-			if item.End.DateTime == "" {
-				end, _ = time.Parse("2006-01-02", item.End.Date)
-			}
+			var start, end time.Time
+			isAllDay := false
 
-			isAllDay := item.Start.DateTime == ""
+			if item.Start.DateTime != "" {
+				start, _ = time.Parse(time.RFC3339, item.Start.DateTime)
+				end, _ = time.Parse(time.RFC3339, item.End.DateTime)
+			} else {
+				// All-day event
+				isAllDay = true
+				start, _ = time.Parse("2006-01-02", item.Start.Date)
+				// Google all-day end dates are exclusive, but Bventy treats end_time as inclusive end of slot
+				// We'll set it to 23:59:59 of the previous day if we want single day, 
+				// but Bventy's UI usually handles end-of-day well if we set it correctly.
+				tempEnd, _ := time.Parse("2006-01-02", item.End.Date)
+				end = tempEnd.Add(-1 * time.Second) // Set to 23:59:59 of the last day
+			}
 
 			query := `
 				INSERT INTO vendor_calendar_blocks (vendor_id, title, start_time, end_time, is_all_day, type, google_event_id)
