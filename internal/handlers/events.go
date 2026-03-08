@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -36,16 +37,16 @@ func (h *EventHandler) CreateEvent(c *gin.Context) {
 
 	var req CreateEventRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		log.Printf("[CreateEvent] Binding error: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Required fields are missing or invalid: " + err.Error()})
 		return
 	}
 
 	eventDate, err := time.Parse(time.RFC3339, req.Date)
 	if err != nil {
-		// Try generic date format if RFC3339 fails (simple YYYY-MM-DD)
 		eventDate, err = time.Parse("2006-01-02", req.Date)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format. Use YYYY-MM-DD or RFC3339"})
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid date format. Use YYYY-MM-DD or RFC3339"})
 			return
 		}
 	}
@@ -63,11 +64,12 @@ func (h *EventHandler) CreateEvent(c *gin.Context) {
 		err := db.Pool.QueryRow(c.Request.Context(), queryCheck, organizerGroupID, userID).Scan(&isMember)
 
 		if err == pgx.ErrNoRows {
-			c.JSON(http.StatusForbidden, gin.H{"error": "You are not a member of this group"})
+			c.JSON(http.StatusForbidden, gin.H{"message": "You are not a member of this group"})
 			return
 		}
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error checking membership"})
+			log.Printf("[CreateEvent] Membership check error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Database error checking membership"})
 			return
 		}
 	}
@@ -85,8 +87,8 @@ func (h *EventHandler) CreateEvent(c *gin.Context) {
 	).Scan(&eventID)
 
 	if err != nil {
-		fmt.Printf("ERROR: Failed to create event for user %s: %v\n", userID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create event"})
+		log.Printf("[CreateEvent] SQL error for user %s: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to create event in database: " + err.Error()})
 		return
 	}
 
