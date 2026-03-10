@@ -15,6 +15,7 @@ import (
 
 func RegisterRoutes(r *gin.Engine) {
 	r.Use(gzip.Gzip(gzip.DefaultCompression))
+	r.Use(middleware.VersionMiddleware("1.0.1-perf"))
 
 	cfg := config.LoadConfig()
 
