@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/bventy/backend/internal/config"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -32,7 +33,18 @@ func Connect(cfg *config.Config) {
 	}
 
 	var err error
-	Pool, err = pgxpool.New(context.Background(), dbURL)
+	config, err := pgxpool.ParseConfig(dbURL)
+	if err != nil {
+		log.Fatal("❌ DB config parsing failed:", err)
+	}
+
+	// Tune pool settings for performance and stability
+	config.MaxConns = 25
+	config.MinConns = 5
+	config.MaxConnLifetime = 30 * time.Minute
+	config.MaxConnIdleTime = 5 * time.Minute
+
+	Pool, err = pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {
 		log.Fatal("❌ DB connection failed:", err)
 	}
@@ -42,7 +54,7 @@ func Connect(cfg *config.Config) {
 		log.Fatal("❌ DB ping failed:", err)
 	}
 
-	fmt.Println("✅ Connected to PostgreSQL successfully!")
+	fmt.Println("✅ Connected to PostgreSQL successfully (Pool sized)!")
 }
 
 func RunMigrations() {

@@ -9,10 +9,12 @@ import (
 	"github.com/bventy/backend/internal/middleware"
 	"github.com/bventy/backend/internal/services"
 	"github.com/bventy/backend/internal/websocket"
+	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 )
 
 func RegisterRoutes(r *gin.Engine) {
+	r.Use(gzip.Gzip(gzip.DefaultCompression))
 
 	cfg := config.LoadConfig()
 
