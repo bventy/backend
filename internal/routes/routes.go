@@ -45,6 +45,7 @@ func RegisterRoutes(r *gin.Engine) {
 
 	// Public Routes
 	r.GET("/health", handlers.HealthCheck)
+	r.GET("/system/status", handlers.GetSystemStatus)
 	r.GET("/vendors", vendorHandler.ListVerifiedVendors)
 	r.GET("/vendors/slug/:slug", vendorHandler.GetVendorBySlug)
 	r.GET("/vendors/slug/:slug/details", vendorHandler.GetPublicVendorDetails)
