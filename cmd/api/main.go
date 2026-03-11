@@ -26,25 +26,7 @@ func main() {
 
 	r := gin.Default()
 
-	// Step 2.1: Gzip Compression
-	r.Use(gzip.Gzip(gzip.DefaultCompression))
-
-	// Step 2.2: Security Headers Middleware
-	r.Use(func(c *gin.Context) {
-		c.Header("X-Frame-Options", "DENY")
-		c.Header("X-Content-Type-Options", "nosniff")
-		c.Header("X-XSS-Protection", "1; mode=block")
-		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
-		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://va.vercel-scripts.com https://us-assets.i.posthog.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://media.bventy.in; connect-src 'self' https://api.bventy.in https://status.bventy.in https://us.i.posthog.com https://cloud.umami.is;")
-		
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
-			return
-		}
-		c.Next()
-	})
-
-	// Step 2.5: CORS Middleware
+	// Step 2.1: CORS Middleware (Must be before security headers to handle OPTIONS)
 	allowedOrigins := []string{
 		"https://bventy.in",
 		"https://www.bventy.in",
@@ -83,6 +65,24 @@ func main() {
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
+
+	// Step 2.2: Gzip Compression
+	r.Use(gzip.Gzip(gzip.DefaultCompression))
+
+	// Step 2.3: Security Headers Middleware
+	r.Use(func(c *gin.Context) {
+		c.Header("X-Frame-Options", "DENY")
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-XSS-Protection", "1; mode=block")
+		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://va.vercel-scripts.com https://us-assets.i.posthog.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://media.bventy.in; connect-src 'self' https://api.bventy.in https://status.bventy.in https://us.i.posthog.com https://cloud.umami.is;")
+		
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+		c.Next()
+	})
 
 	// Step 3: Register routes
 	routes.RegisterRoutes(r)
