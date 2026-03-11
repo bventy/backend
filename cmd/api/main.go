@@ -12,24 +12,37 @@ import (
 	"github.com/bventy/backend/internal/routes"
 	"github.com/bventy/backend/internal/tracking"
 	"github.com/gin-contrib/cors"
+	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
-
-	// Step 0: Load config
+	// ... config and DB setup
 	cfg := config.LoadConfig()
-
-	// Step 1: Connect DB
 	db.Connect(cfg)
 	db.RunMigrations()
-
-	// Step 1.5: Initialize Tracking
 	tracking.Init(cfg)
 	defer tracking.Flush()
 
-	// Step 2: Start Gin server
 	r := gin.Default()
+
+	// Step 2.1: Gzip Compression
+	r.Use(gzip.Gzip(gzip.DefaultCompression))
+
+	// Step 2.2: Security Headers Middleware
+	r.Use(func(c *gin.Context) {
+		c.Header("X-Frame-Options", "DENY")
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-XSS-Protection", "1; mode=block")
+		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://va.vercel-scripts.com https://us-assets.i.posthog.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://media.bventy.in; connect-src 'self' https://api.bventy.in https://us.i.posthog.com https://cloud.umami.is;")
+		
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+		c.Next()
+	})
 
 	// Step 2.5: CORS Middleware
 	allowedOrigins := []string{
