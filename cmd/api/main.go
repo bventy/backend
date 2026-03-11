@@ -35,7 +35,7 @@ func main() {
 		c.Header("X-Content-Type-Options", "nosniff")
 		c.Header("X-XSS-Protection", "1; mode=block")
 		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
-		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://va.vercel-scripts.com https://us-assets.i.posthog.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://media.bventy.in; connect-src 'self' https://api.bventy.in https://us.i.posthog.com https://cloud.umami.is;")
+		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://va.vercel-scripts.com https://us-assets.i.posthog.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://media.bventy.in; connect-src 'self' https://api.bventy.in https://status.bventy.in https://us.i.posthog.com https://cloud.umami.is;")
 		
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
@@ -53,6 +53,7 @@ func main() {
 		"https://partner.bventy.in",
 		"https://admin.bventy.in",
 		"https://app.bventy.in",
+		"https://status.bventy.in",
 		"http://localhost:3000",
 		"http://localhost:3001",
 		"http://localhost:3002",
