@@ -49,13 +49,15 @@ type Monitor struct {
 	LastChecked      time.Time     `json:"last_checked"`
 	UptimePercentage float64       `json:"uptime_percentage"`
 	AvgLatencyMS     int           `json:"avg_latency_ms"`
+	FailureCount     int           `json:"failure_count"` // Tracking consecutive failures
 	History          []StatusPoint `json:"history,omitempty"`
 	DailyStats       []DailyStat   `json:"daily_stats,omitempty"`
 }
 
 type SystemStatusService struct {
-	monitors []Monitor
-	mu       sync.RWMutex
+	monitors      []Monitor
+	failureCounts map[string]int // monitorName -> consecutiveFailureCount
+	mu            sync.RWMutex
 }
 
 var (
@@ -66,6 +68,7 @@ var (
 func GetSystemStatusService() *SystemStatusService {
 	once.Do(func() {
 		instance = &SystemStatusService{
+			failureCounts: make(map[string]int),
 			monitors: []Monitor{
 				// Web
 				{Name: "bventy.in", Display: "Website", Category: "Web", Status: StatusOffline},
@@ -198,8 +201,12 @@ func (s *SystemStatusService) getDailyStats(name string) []DailyStat {
 		SELECT 
 			d.day::text as date,
 			COALESCE(
-				(COUNT(h.id) FILTER (WHERE h.status = 'operational')::float / NULLIF(COUNT(h.id), 0)) * 100,
-				-1 -- -1 means no data for that day
+				CASE 
+					WHEN COUNT(h.id) FILTER (WHERE h.status = 'down') > 0 THEN 0 -- Red: Confirmed Outage
+					WHEN COUNT(h.id) FILTER (WHERE h.status = 'degraded') > 0 THEN 50 -- Yellow: Blip/Degraded
+					WHEN COUNT(h.id) FILTER (WHERE h.status = 'operational') > 0 THEN 100 -- Green: Perfect
+					ELSE -1 -- No data
+				END, -1
 			) as uptime,
 			COALESCE(AVG(h.latency_ms) FILTER (WHERE h.status = 'operational'), 0)::int as avg_latency
 		FROM days d
@@ -283,21 +290,36 @@ func (s *SystemStatusService) checkAll() {
 		now := time.Now()
 
 		s.mu.Lock()
-		s.monitors[i].Status = status
 		s.monitors[i].LastChecked = now
+		
+		if status == StatusDown {
+			s.failureCounts[s.monitors[i].Name]++
+		} else {
+			s.failureCounts[s.monitors[i].Name] = 0
+		}
+		
+		failCount := s.failureCounts[s.monitors[i].Name]
+		s.monitors[i].FailureCount = failCount
+
+		// Automated Incident Logging & Status Resolution
+		// Only "Down" if 2+ consecutive failures
+		if failCount >= 2 {
+			s.monitors[i].Status = StatusDown
+			if !s.hasActiveIncident(s.monitors[i].Name) {
+				s.createIncident(s.monitors[i].Name, "Service Outage", fmt.Sprintf("Confirmed system failure. Detection node reported 2 consecutive unreachable states. Diagnostic: %s", errMsg))
+			}
+		} else if status == StatusOperational {
+			if s.monitors[i].Status == StatusDown {
+				s.resolveIncident(s.monitors[i].Name)
+			}
+			s.monitors[i].Status = StatusOperational
+		} else {
+			// status == StatusDown but failCount < 2 -> Degraded/Yellow
+			s.monitors[i].Status = "degraded"
+		}
 		s.mu.Unlock()
 
-		// Automated Incident Logging
-		if status == StatusDown {
-			// Check if we already have an active incident to avoid duplication
-			if !s.hasActiveIncident(s.monitors[i].Name) {
-				s.createIncident(s.monitors[i].Name, "Service Outage", fmt.Sprintf("Automated detection: service became unreachable. Diagnostic: %s", errMsg))
-			}
-		} else if oldStatus == StatusDown && status == StatusOperational {
-			s.resolveIncident(s.monitors[i].Name)
-		}
-
-		s.persistStatus(s.monitors[i].Name, string(status), latency, errMsg, now)
+		s.persistStatus(s.monitors[i].Name, string(s.monitors[i].Status), latency, errMsg, now)
 	}
 }
 
