@@ -159,8 +159,6 @@ The platform utilizes a sophisticated database preservation system.
 
 ---
 
----
-
 ## License
 
 This project is licensed under the **GNU Affero General Public License v3 ([AGPL-3.0](LICENSE))**. 
