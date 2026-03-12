@@ -91,7 +91,7 @@ graph LR
 
 *   **Backend Service**: A Go service providing the marketplace logic and REST API, supporting cross-subdomain authentication via secure, parent-domain cookies (`.bventy.in`).
 *   **Database**: PostgreSQL for relational data and state permanence.
-*   **R2 Storage**: Secure object storage for attachments and media.
+*   **Media Storage**: Secure object storage via [media.bventy.in](https://media.bventy.in) for attachments and assets.
 *   **Activity Log**: A unified layer for audit trails and platform health metrics.
 
 ---
