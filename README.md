@@ -64,6 +64,7 @@ Bventy is composed of several focused layers that work together to provide a rel
 graph LR
     subgraph Client
     FE[Next.js Frontend]
+    Status[Status Dashboard]
     end
     
     subgraph Bventy Backend
