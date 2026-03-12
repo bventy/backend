@@ -10,6 +10,7 @@ import (
 	"github.com/bventy/backend/internal/config"
 	"github.com/bventy/backend/internal/db"
 	"github.com/bventy/backend/internal/routes"
+	"github.com/bventy/backend/internal/services"
 	"github.com/bventy/backend/internal/tracking"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/gzip"
@@ -23,6 +24,15 @@ func main() {
 	db.RunMigrations()
 	tracking.Init(cfg)
 	defer tracking.Flush()
+
+	// Initialize Media & Backup Services
+	mediaService, err := services.NewMediaService(cfg)
+	if err != nil {
+		log.Printf("⚠️  Warning: Failed to initialize MediaService for backups: %v", err)
+	} else if mediaService != nil {
+		backupService := services.NewBackupService(cfg, mediaService)
+		go backupService.Start()
+	}
 
 	r := gin.Default()
 
