@@ -115,8 +115,8 @@ func startSelfPing(port string) {
 		url = externalURL + "/health"
 	}
 
-	ticker := time.NewTicker(5 * time.Minute)
-	log.Printf("Heartbeat started: pinging %s every 5 minutes", url)
+	ticker := time.NewTicker(30 * time.Minute)
+	log.Printf("Heartbeat started: pinging %s every 30 minutes", url)
 
 	for range ticker.C {
 		resp, err := http.Get(url)
