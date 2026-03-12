@@ -9,7 +9,6 @@ import (
 	"github.com/bventy/backend/internal/middleware"
 	"github.com/bventy/backend/internal/services"
 	"github.com/bventy/backend/internal/websocket"
-	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 )
 
