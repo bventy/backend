@@ -285,7 +285,7 @@ func (s *SystemStatusService) checkAll() {
 			time.Sleep(3 * time.Second) // Staggered for efficiency
 		}
 
-		s.checkMonitor(s.monitors[i])
+		status, latency, errMsg := s.checkMonitor(s.monitors[i])
 		now := time.Now()
 
 		s.mu.Lock()
