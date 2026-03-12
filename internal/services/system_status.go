@@ -92,9 +92,33 @@ func GetSystemStatusService() *SystemStatusService {
 				{Name: "Resend", Display: "Email Delivery", Category: "Communications", Status: StatusOffline},
 			},
 		}
+		// Load history immediately to avoid "Initializing" state after restart
+		instance.loadLastKnownStatus()
 		go instance.startMonitoring()
 	})
 	return instance
+}
+
+func (s *SystemStatusService) loadLastKnownStatus() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	for i := range s.monitors {
+		var status string
+		var checkedAt time.Time
+		err := db.Pool.QueryRow(ctx, `
+			SELECT status, checked_at 
+			FROM system_status_history 
+			WHERE monitor_name = $1 
+			ORDER BY checked_at DESC 
+			LIMIT 1
+		`, s.monitors[i].Name).Scan(&status, &checkedAt)
+		
+		if err == nil {
+			s.monitors[i].Status = MonitorStatus(status)
+			s.monitors[i].LastChecked = checkedAt
+		}
+	}
 }
 
 func (s *SystemStatusService) GetStatus() ([]Monitor, []Incident, float64) {
