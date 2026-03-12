@@ -9,6 +9,7 @@ import (
 
 	"github.com/bventy/backend/internal/config"
 	"github.com/bventy/backend/internal/db"
+	"github.com/bventy/backend/internal/middleware"
 	"github.com/bventy/backend/internal/routes"
 	"github.com/bventy/backend/internal/services"
 	"github.com/bventy/backend/internal/tracking"
