@@ -66,6 +66,9 @@ func GetSystemStatusService() *SystemStatusService {
 				// Analytics
 				{Name: "PostHog", Display: "User Analytics", Category: "Analytics", Status: StatusOffline},
 				{Name: "Umami", Display: "Web Analytics", Category: "Analytics", Status: StatusOffline},
+
+				// Communications
+				{Name: "Resend", Display: "Email Delivery", Category: "Communications", Status: StatusOffline},
 			},
 		}
 		go instance.startMonitoring()
@@ -188,7 +191,9 @@ func (s *SystemStatusService) checkMonitor(m Monitor) MonitorStatus {
 	case "PostHog":
 		url = "https://status.posthog.com"
 	case "Umami":
-		url = "https://status.umami.is"
+		url = "https://cloud.umami.is"
+	case "Resend":
+		url = "https://status.resend.com"
 	default:
 		return StatusOperational
 	}
