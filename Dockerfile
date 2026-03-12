@@ -12,7 +12,7 @@ RUN go mod download
 
 # Copy source and build
 COPY . .
-RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o api cmd/api/main.go
+RUN CGO_ENABLED=1 make build
 
 # Step 2: Final Stage
 FROM alpine:latest

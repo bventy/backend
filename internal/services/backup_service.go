@@ -38,7 +38,11 @@ func (s *BackupService) Start() {
 	// Check every 15 minutes
 	ticker := time.NewTicker(15 * time.Minute)
 	
-	// Initial check
+	// Startup delay: don't check immediately to avoid interfering with deployment health checks
+	log.Println("⏳ Backup Service: Delaying initial check for 10 minutes to protect startup integrity")
+	time.Sleep(10 * time.Minute)
+	
+	// Initial check after delay
 	go s.checkAndPerformBackups()
 
 	for range ticker.C {

@@ -1,16 +1,19 @@
-.PHONY: run build test clean
+# Build configuration for speed and size
+GO_BUILD=go build -ldflags="-s -w" -trimpath
 
-# Default command
-all: run
-
-run:
-	go run cmd/api/main.go
+all: build
 
 build:
-	go build -o bin/api cmd/api/main.go
-
-test:
-	go test ./... -v
+	@echo "Building optimized api binary..."
+	@$(GO_BUILD) -o api cmd/api/main.go
 
 clean:
-	rm -rf bin/
+	@echo "Cleaning up..."
+	@rm -f api
+	@rm -rf tmp/
+
+optimize-git:
+	@echo "Optimizing git repository size..."
+	@git gc --aggressive --prune=now
+
+.PHONY: all build clean optimize-git
