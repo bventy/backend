@@ -35,6 +35,7 @@ func main() {
 	}
 
 	r := gin.Default()
+	r.Use(middleware.ActivityTracker())
 
 	// Step 2.1: CORS Middleware (Must be before security headers to handle OPTIONS)
 	allowedOrigins := []string{

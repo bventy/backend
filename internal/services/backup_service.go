@@ -7,16 +7,22 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bventy/backend/internal/config"
+	"github.com/bventy/backend/internal/middleware"
 )
 
 type BackupService struct {
 	MediaService *MediaService
 	Config       *config.Config
+	
+	lastFullBackup   time.Time
+	lastSchemaBackup time.Time
+	mu              sync.Mutex
 }
 
 func NewBackupService(cfg *config.Config, media *MediaService) *BackupService {
@@ -27,12 +33,12 @@ func NewBackupService(cfg *config.Config, media *MediaService) *BackupService {
 }
 
 func (s *BackupService) Start() {
-	log.Println("🛡️  Backup Service started")
+	log.Println("🛡️  Smart Backup Service started (Idle-aware)")
 	
-	// Check for backups every hour
-	ticker := time.NewTicker(1 * time.Hour)
+	// Check more frequently for idle state
+	ticker := time.NewTicker(15 * time.Minute)
 	
-	// Run initial backup check
+	// Initial check
 	go s.checkAndPerformBackups()
 
 	for range ticker.C {
@@ -42,24 +48,59 @@ func (s *BackupService) Start() {
 
 func (s *BackupService) checkAndPerformBackups() {
 	now := time.Now().UTC()
+	lastActivity := middleware.GetLastActivity()
+	isIdle := time.Since(lastActivity) > 10*time.Minute
 	
-	// Daily Full Backup (3:00 AM UTC)
-	if now.Hour() == 3 {
-		log.Println("📦 Starting daily full database backup...")
-		if err := s.PerformBackup(false); err != nil {
-			log.Printf("❌ Full backup failed: %v", err)
-		} else {
-			log.Println("✅ Full backup completed successfully")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// --- Full Backup Logic ---
+	// Window: 00:00 - 06:00 UTC
+	inFullWindow := now.Hour() >= 0 && now.Hour() < 6
+	alreadyBackupFullToday := s.lastFullBackup.Year() == now.Year() && 
+		s.lastFullBackup.Month() == now.Month() && 
+		s.lastFullBackup.Day() == now.Day()
+
+	if inFullWindow && !alreadyBackupFullToday {
+		// Trigger if idle OR if we're in the last hour of the window (safety catch)
+		if isIdle || now.Hour() == 5 {
+			reason := "idle state detected"
+			if !isIdle {
+				reason = "closing window safety catch"
+			}
+			log.Printf("📦 Triggering smart full backup (%s)...", reason)
+			
+			if err := s.PerformBackup(false); err != nil {
+				log.Printf("❌ Smart full backup failed: %v", err)
+			} else {
+				s.lastFullBackup = now
+				log.Println("✅ Smart full backup completed")
+			}
 		}
 	}
 
-	// Daily Schema Backup (3:00 PM UTC)
-	if now.Hour() == 15 {
-		log.Println("📦 Starting daily schema-only database backup...")
-		if err := s.PerformBackup(true); err != nil {
-			log.Printf("❌ Schema backup failed: %v", err)
-		} else {
-			log.Println("✅ Schema backup completed successfully")
+	// --- Schema Backup Logic ---
+	// Window: 12:00 - 18:00 UTC
+	inSchemaWindow := now.Hour() >= 12 && now.Hour() < 18
+	alreadyBackupSchemaToday := s.lastSchemaBackup.Year() == now.Year() && 
+		s.lastSchemaBackup.Month() == now.Month() && 
+		s.lastSchemaBackup.Day() == now.Day()
+
+	if inSchemaWindow && !alreadyBackupSchemaToday {
+		// Trigger if idle OR if we're in the last hour of the window
+		if isIdle || now.Hour() == 17 {
+			reason := "idle state detected"
+			if !isIdle {
+				reason = "closing window safety catch"
+			}
+			log.Printf("📦 Triggering smart schema backup (%s)...", reason)
+			
+			if err := s.PerformBackup(true); err != nil {
+				log.Printf("❌ Smart schema backup failed: %v", err)
+			} else {
+				s.lastSchemaBackup = now
+				log.Println("✅ Smart schema backup completed")
+			}
 		}
 	}
 }
@@ -82,20 +123,17 @@ func (s *BackupService) PerformBackup(schemaOnly bool) error {
 
 	cmd := exec.Command("pg_dump", args...)
 	
-	// Run pg_dump
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("pg_dump failed: %w (output: %s)", err, string(output))
 	}
 	defer os.Remove(tmpPath)
 
-	// Open the file for uploading
 	file, err := os.Open(tmpPath)
 	if err != nil {
 		return fmt.Errorf("failed to open backup file: %w", err)
 	}
 	defer file.Close()
 
-	// Upload to R2 in a secure directory
 	r2Key := fmt.Sprintf("internal_backups/%s", filename)
 	
 	_, err = s.MediaService.Client.PutObject(context.TODO(), &s3.PutObjectInput{
