@@ -399,7 +399,7 @@ func (s *SystemStatusService) checkMonitor(m Monitor) (MonitorStatus, int, strin
 	case "PostHog":
 		url = "https://status.posthog.com"
 	case "Umami":
-		url = "https://umami.bventy.in" // Base URL check
+		url = "https://cloud.umami.is" // Target verified cloud endpoint
 	case "Resend":
 		url = "https://resend.com" // Status check via main site or status page
 	default:
