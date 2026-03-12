@@ -20,12 +20,15 @@ const (
 
 type StatusPoint struct {
 	Status    MonitorStatus `json:"status"`
+	LatencyMS int           `json:"latency_ms"`
+	ErrorMsg  string        `json:"error_msg,omitempty"`
 	CheckedAt time.Time     `json:"checked_at"`
 }
 
 type DailyStat struct {
 	Date             string  `json:"date"`
 	UptimePercentage float64 `json:"uptime_percentage"`
+	AvgLatencyMS     int     `json:"avg_latency_ms"`
 }
 
 type Incident struct {
@@ -45,6 +48,7 @@ type Monitor struct {
 	Category         string        `json:"category"`
 	LastChecked      time.Time     `json:"last_checked"`
 	UptimePercentage float64       `json:"uptime_percentage"`
+	AvgLatencyMS     int           `json:"avg_latency_ms"`
 	History          []StatusPoint `json:"history,omitempty"`
 	DailyStats       []DailyStat   `json:"daily_stats,omitempty"`
 }
@@ -64,12 +68,12 @@ func GetSystemStatusService() *SystemStatusService {
 		instance = &SystemStatusService{
 			monitors: []Monitor{
 				// Web
-				{Name: "bventy.in", Display: "Main Website", Category: "Web", Status: StatusOffline},
+				{Name: "bventy.in", Display: "Website", Category: "Web", Status: StatusOffline},
 				{Name: "app.bventy.in", Display: "User Portal", Category: "Web", Status: StatusOffline},
 				
 				// Frontend
 				{Name: "auth.bventy.in", Display: "Auth Service", Category: "Frontend", Status: StatusOffline},
-				{Name: "partner.bventy.in", Display: "Vendor Dashboard", Category: "Frontend", Status: StatusOffline},
+				{Name: "partner.bventy.in", Display: "Partner Portal", Category: "Frontend", Status: StatusOffline},
 				{Name: "admin.bventy.in", Display: "Admin Panel", Category: "Frontend", Status: StatusOffline},
 
 				// API
@@ -104,6 +108,7 @@ func (s *SystemStatusService) GetStatus() ([]Monitor, []Incident, float64) {
 	for i := range monitors {
 		monitors[i].DailyStats = s.getDailyStats(monitors[i].Name)
 		monitors[i].UptimePercentage = s.calculateUptime(monitors[i].Name)
+		monitors[i].AvgLatencyMS = s.getAverageLatency(monitors[i].Name)
 		totalUptime += monitors[i].UptimePercentage
 	}
 
@@ -113,6 +118,23 @@ func (s *SystemStatusService) GetStatus() ([]Monitor, []Incident, float64) {
 	}
 
 	return monitors, s.GetActiveIncidents(), overallUptime
+}
+
+func (s *SystemStatusService) getAverageLatency(name string) int {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	var avgLatency float64
+	err := db.Pool.QueryRow(ctx, `
+		SELECT COALESCE(AVG(latency_ms), 0)
+		FROM system_status_history
+		WHERE monitor_name = $1 AND checked_at > now() - interval '24 hours'
+	`, name).Scan(&avgLatency)
+	
+	if err != nil {
+		return 0
+	}
+	return int(avgLatency)
 }
 
 func (s *SystemStatusService) calculateUptime(name string) float64 {
@@ -154,7 +176,8 @@ func (s *SystemStatusService) getDailyStats(name string) []DailyStat {
 			COALESCE(
 				(COUNT(h.id) FILTER (WHERE h.status = 'operational')::float / NULLIF(COUNT(h.id), 0)) * 100,
 				-1 -- -1 means no data for that day
-			) as uptime
+			) as uptime,
+			COALESCE(AVG(h.latency_ms) FILTER (WHERE h.status = 'operational'), 0)::int as avg_latency
 		FROM days d
 		LEFT JOIN system_status_history h ON date_trunc('day', h.checked_at)::date = d.day AND h.monitor_name = $1
 		GROUP BY d.day
@@ -168,7 +191,7 @@ func (s *SystemStatusService) getDailyStats(name string) []DailyStat {
 	var stats []DailyStat
 	for rows.Next() {
 		var st DailyStat
-		if err := rows.Scan(&st.Date, &st.UptimePercentage); err == nil {
+		if err := rows.Scan(&st.Date, &st.UptimePercentage, &st.AvgLatencyMS); err == nil {
 			stats = append(stats, st)
 		}
 	}
@@ -201,8 +224,8 @@ func (s *SystemStatusService) GetActiveIncidents() []Incident {
 }
 
 func (s *SystemStatusService) startMonitoring() {
-	// Ping every 15 minutes as requested
-	ticker := time.NewTicker(15 * time.Minute)
+	// Ping every 30 minutes as requested for extreme efficiency
+	ticker := time.NewTicker(30 * time.Minute)
 	
 	// Initial check
 	s.checkAll()
@@ -212,14 +235,14 @@ func (s *SystemStatusService) startMonitoring() {
 	}
 }
 
-func (s *SystemStatusService) persistStatus(name, status string, checkedAt time.Time) {
+func (s *SystemStatusService) persistStatus(name, status string, latency int, errMsg string, checkedAt time.Time) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	_, err := db.Pool.Exec(ctx, `
-		INSERT INTO system_status_history (monitor_name, status, checked_at) 
-		VALUES ($1, $2, $3)
-	`, name, status, checkedAt)
+		INSERT INTO system_status_history (monitor_name, status, latency_ms, error_msg, checked_at) 
+		VALUES ($1, $2, $3, $4, $5)
+	`, name, status, latency, errMsg, checkedAt)
 	if err != nil {
 		fmt.Printf("⚠️ Failed to persist status for %s: %v\n", name, err)
 	}
@@ -228,11 +251,11 @@ func (s *SystemStatusService) persistStatus(name, status string, checkedAt time.
 func (s *SystemStatusService) checkAll() {
 	for i := range s.monitors {
 		if i > 0 {
-			time.Sleep(5 * time.Second)
+			time.Sleep(3 * time.Second) // Staggered for efficiency
 		}
 
 		oldStatus := s.monitors[i].Status
-		status := s.checkMonitor(s.monitors[i])
+		status, latency, errMsg := s.checkMonitor(s.monitors[i])
 		now := time.Now()
 
 		s.mu.Lock()
@@ -242,12 +265,12 @@ func (s *SystemStatusService) checkAll() {
 
 		// Automated Incident Logging
 		if oldStatus == StatusOperational && status == StatusDown {
-			s.createIncident(s.monitors[i].Name, "Service Down", "Automated detection: service became unreachable.")
+			s.createIncident(s.monitors[i].Name, "Service Down", fmt.Sprintf("Automated detection: service became unreachable. Diagnostic: %s", errMsg))
 		} else if oldStatus == StatusDown && status == StatusOperational {
 			s.resolveIncident(s.monitors[i].Name)
 		}
 
-		s.persistStatus(s.monitors[i].Name, string(status), now)
+		s.persistStatus(s.monitors[i].Name, string(status), latency, errMsg, now)
 	}
 }
 
@@ -278,9 +301,9 @@ func (s *SystemStatusService) resolveIncident(name string) {
 	}
 }
 
-func (s *SystemStatusService) checkMonitor(m Monitor) MonitorStatus {
+func (s *SystemStatusService) checkMonitor(m Monitor) (MonitorStatus, int, string) {
 	client := http.Client{
-		Timeout: 5 * time.Second,
+		Timeout: 4 * time.Second,
 	}
 
 	var url string
@@ -298,40 +321,49 @@ func (s *SystemStatusService) checkMonitor(m Monitor) MonitorStatus {
 	case "api.bventy.in":
 		url = "https://api.bventy.in/health"
 	case "Neon":
-		// Direct DB Ping
+		start := time.Now()
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		if err := db.Pool.Ping(ctx); err != nil {
-			return StatusDown
+			return StatusDown, int(time.Since(start).Milliseconds()), err.Error()
 		}
-		return StatusOperational
+		return StatusOperational, int(time.Since(start).Milliseconds()), ""
 	case "Render":
-		// Ping our own heartbeat on Render
 		url = "https://api.bventy.in/health"
 	case "Cloudflare R2":
-		// Generic but standard endpoint
 		url = "https://www.cloudflarestatus.com"
 	case "PostHog":
 		url = "https://status.posthog.com"
 	case "Umami":
-		// Ping our own instance's script
 		url = "https://umami.bventy.in/script.js" 
 	case "Resend":
-		// Ping API
-		url = "https://api.resend.com/health" // Or status
+		url = "https://api.resend.com/health"
 	default:
-		return StatusOperational
+		return StatusOperational, 0, ""
 	}
 
-	resp, err := client.Get(url)
+	start := time.Now()
+	// Use HEAD request for efficiency
+	req, _ := http.NewRequest(http.MethodHead, url, nil)
+	req.Header.Set("User-Agent", "BventyMonitor/1.0")
+	
+	resp, err := client.Do(req)
+	latency := int(time.Since(start).Milliseconds())
+
 	if err != nil {
-		return StatusDown
+		// Fallback to GET if HEAD is not supported or fails
+		req.Method = http.MethodGet
+		resp, err = client.Do(req)
+		latency = int(time.Since(start).Milliseconds())
+		if err != nil {
+			return StatusDown, latency, err.Error()
+		}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
-		return StatusOperational
+		return StatusOperational, latency, ""
 	}
 
-	return StatusDown
+	return StatusDown, latency, fmt.Sprintf("HTTP %d", resp.StatusCode)
 }
