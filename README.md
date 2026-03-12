@@ -142,6 +142,24 @@ We take a deliberate approach to user data.
 
 ---
 
+## Reliability and Continuity
+
+Bventy incorporates professional grade systems to maintain platform integrity and data safety.
+
+### System Status
+Real time infrastructure health and service availability are monitored at [status.bventy.in](https://status.bventy.in). Our dashboard provides transparency into the operational state of our core services and third party integrations.
+
+### Automated Continuity
+The platform utilizes a sophisticated database preservation system.
+*   **Full Backups**: Comprehensive daily snapshots of data and architecture.
+*   **Schema Snapshots**: Daily structural exports for version consistency.
+*   **Quiet Window Execution**: Backup processes are idle aware, initiating only during periods of low traffic to ensure zero impact on user experience.
+*   **Secure Storage**: All snapshots are encrypted and stored in private object storage, isolated from public media assets.
+
+---
+
+---
+
 ## License
 
 This project is licensed under the **GNU Affero General Public License v3 ([AGPL-3.0](LICENSE))**. 
