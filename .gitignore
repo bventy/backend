@@ -1,6 +1,8 @@
 # Binaries
 bin/
 main
+api
+check_users_schema
 
 # Environment variables
 .env
@@ -8,4 +10,3 @@ main
 # Temporary files
 tmp/
 *.log
-/api

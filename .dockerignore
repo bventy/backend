@@ -2,6 +2,7 @@
 api
 main
 bin/
+check_users_schema
 
 # Environment
 .env
