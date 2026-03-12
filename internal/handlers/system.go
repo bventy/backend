@@ -9,9 +9,11 @@ import (
 
 func GetSystemStatus(c *gin.Context) {
 	service := services.GetSystemStatusService()
-	status := service.GetStatus()
+	monitors, incidents, overallUptime := service.GetStatus()
 
 	c.JSON(http.StatusOK, gin.H{
-		"monitors": status,
+		"monitors":       monitors,
+		"incidents":      incidents,
+		"overall_uptime": overallUptime,
 	})
 }

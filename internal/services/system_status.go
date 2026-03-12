@@ -23,13 +23,30 @@ type StatusPoint struct {
 	CheckedAt time.Time     `json:"checked_at"`
 }
 
+type DailyStat struct {
+	Date             string  `json:"date"`
+	UptimePercentage float64 `json:"uptime_percentage"`
+}
+
+type Incident struct {
+	ID          string     `json:"id"`
+	MonitorName string     `json:"monitor_name"`
+	IssueType   string     `json:"issue_type"`
+	Description string     `json:"description"`
+	Status      string     `json:"status"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ResolvedAt  *time.Time `json:"resolved_at"`
+}
+
 type Monitor struct {
-	Name        string        `json:"name"`
-	Display     string        `json:"display"`
-	Status      MonitorStatus `json:"status"`
-	Category    string        `json:"category"`
-	LastChecked time.Time     `json:"last_checked"`
-	History     []StatusPoint `json:"history,omitempty"`
+	Name             string        `json:"name"`
+	Display          string        `json:"display"`
+	Status           MonitorStatus `json:"status"`
+	Category         string        `json:"category"`
+	LastChecked      time.Time     `json:"last_checked"`
+	UptimePercentage float64       `json:"uptime_percentage"`
+	History          []StatusPoint `json:"history,omitempty"`
+	DailyStats       []DailyStat   `json:"daily_stats,omitempty"`
 }
 
 type SystemStatusService struct {
@@ -76,77 +93,122 @@ func GetSystemStatusService() *SystemStatusService {
 	return instance
 }
 
-func (s *SystemStatusService) GetStatus() []Monitor {
+func (s *SystemStatusService) GetStatus() ([]Monitor, []Incident, float64) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	
-	// Copy monitors but enrich with history from DB
 	monitors := make([]Monitor, len(s.monitors))
 	copy(monitors, s.monitors)
 
+	var totalUptime float64
 	for i := range monitors {
-		monitors[i].History = s.getHistory(monitors[i].Name)
+		monitors[i].DailyStats = s.getDailyStats(monitors[i].Name)
+		monitors[i].UptimePercentage = s.calculateUptime(monitors[i].Name)
+		totalUptime += monitors[i].UptimePercentage
 	}
 
-	return monitors
+	overallUptime := 0.0
+	if len(monitors) > 0 {
+		overallUptime = totalUptime / float64(len(monitors))
+	}
+
+	return monitors, s.GetActiveIncidents(), overallUptime
 }
 
-func (s *SystemStatusService) getHistory(name string) []StatusPoint {
+func (s *SystemStatusService) calculateUptime(name string) float64 {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
+	var uptime float64
+	err := db.Pool.QueryRow(ctx, `
+		SELECT 
+			COALESCE(
+				(COUNT(*) FILTER (WHERE status = 'operational')::float / COUNT(*)) * 100,
+				100
+			)
+		FROM system_status_history
+		WHERE monitor_name = $1 AND checked_at > now() - interval '90 days'
+	`, name).Scan(&uptime)
+	
+	if err != nil {
+		return 100.0
+	}
+	return uptime
+}
+
+func (s *SystemStatusService) getDailyStats(name string) []DailyStat {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// Aggregate status by day for the last 90 days
 	rows, err := db.Pool.Query(ctx, `
-		SELECT status, checked_at 
-		FROM system_status_history 
-		WHERE monitor_name = $1 
-		ORDER BY checked_at DESC 
-		LIMIT 90
+		WITH days AS (
+			SELECT generate_series(
+				date_trunc('day', now()) - interval '89 days',
+				date_trunc('day', now()),
+				interval '1 day'
+			)::date as day
+		)
+		SELECT 
+			d.day::text as date,
+			COALESCE(
+				(COUNT(h.id) FILTER (WHERE h.status = 'operational')::float / NULLIF(COUNT(h.id), 0)) * 100,
+				-1 -- -1 means no data for that day
+			) as uptime
+		FROM days d
+		LEFT JOIN system_status_history h ON date_trunc('day', h.checked_at)::date = d.day AND h.monitor_name = $1
+		GROUP BY d.day
+		ORDER BY d.day DESC
 	`, name)
 	if err != nil {
-		fmt.Printf("⚠️ Failed to fetch history for %s: %v\n", name, err)
 		return nil
 	}
 	defer rows.Close()
 
-	var history []StatusPoint
+	var stats []DailyStat
 	for rows.Next() {
-		var p StatusPoint
-		if err := rows.Scan(&p.Status, &p.CheckedAt); err == nil {
-			history = append(history, p)
+		var st DailyStat
+		if err := rows.Scan(&st.Date, &st.UptimePercentage); err == nil {
+			stats = append(stats, st)
 		}
 	}
-	return history
+	return stats
+}
+
+func (s *SystemStatusService) GetActiveIncidents() []Incident {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	rows, err := db.Pool.Query(ctx, `
+		SELECT id, monitor_name, issue_type, description, status, created_at, resolved_at 
+		FROM system_incidents 
+		WHERE resolved_at IS NULL OR created_at > now() - interval '7 days'
+		ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var incidents []Incident
+	for rows.Next() {
+		var inc Incident
+		if err := rows.Scan(&inc.ID, &inc.MonitorName, &inc.IssueType, &inc.Description, &inc.Status, &inc.CreatedAt, &inc.ResolvedAt); err == nil {
+			incidents = append(incidents, inc)
+		}
+	}
+	return incidents
 }
 
 func (s *SystemStatusService) startMonitoring() {
-	// Ping every 10 minutes as requested
-	ticker := time.NewTicker(10 * time.Minute)
+	// Ping every 15 minutes as requested
+	ticker := time.NewTicker(15 * time.Minute)
 	
 	// Initial check
 	s.checkAll()
 
 	for range ticker.C {
 		s.checkAll()
-	}
-}
-
-func (s *SystemStatusService) checkAll() {
-	for i := range s.monitors {
-		// Staggered pings: wait 5 seconds between each monitor to be extra safe on free tiers
-		if i > 0 {
-			time.Sleep(5 * time.Second)
-		}
-
-		status := s.checkMonitor(s.monitors[i])
-		now := time.Now()
-
-		s.mu.Lock()
-		s.monitors[i].Status = status
-		s.monitors[i].LastChecked = now
-		s.mu.Unlock()
-
-		// Persist to DB
-		s.persistStatus(s.monitors[i].Name, string(status), now)
 	}
 }
 
@@ -160,6 +222,59 @@ func (s *SystemStatusService) persistStatus(name, status string, checkedAt time.
 	`, name, status, checkedAt)
 	if err != nil {
 		fmt.Printf("⚠️ Failed to persist status for %s: %v\n", name, err)
+	}
+}
+
+func (s *SystemStatusService) checkAll() {
+	for i := range s.monitors {
+		if i > 0 {
+			time.Sleep(5 * time.Second)
+		}
+
+		oldStatus := s.monitors[i].Status
+		status := s.checkMonitor(s.monitors[i])
+		now := time.Now()
+
+		s.mu.Lock()
+		s.monitors[i].Status = status
+		s.monitors[i].LastChecked = now
+		s.mu.Unlock()
+
+		// Automated Incident Logging
+		if oldStatus == StatusOperational && status == StatusDown {
+			s.createIncident(s.monitors[i].Name, "Service Down", "Automated detection: service became unreachable.")
+		} else if oldStatus == StatusDown && status == StatusOperational {
+			s.resolveIncident(s.monitors[i].Name)
+		}
+
+		s.persistStatus(s.monitors[i].Name, string(status), now)
+	}
+}
+
+func (s *SystemStatusService) createIncident(name, issueType, desc string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_, err := db.Pool.Exec(ctx, `
+		INSERT INTO system_incidents (monitor_name, issue_type, description, status, created_at) 
+		VALUES ($1, $2, $3, 'investigating', now())
+	`, name, issueType, desc)
+	if err != nil {
+		fmt.Printf("⚠️ Failed to create incident for %s: %v\n", name, err)
+	}
+}
+
+func (s *SystemStatusService) resolveIncident(name string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE system_incidents 
+		SET status = 'resolved', resolved_at = now() 
+		WHERE monitor_name = $1 AND resolved_at IS NULL
+	`, name)
+	if err != nil {
+		fmt.Printf("⚠️ Failed to resolve incident for %s: %v\n", name, err)
 	}
 }
 
@@ -183,17 +298,27 @@ func (s *SystemStatusService) checkMonitor(m Monitor) MonitorStatus {
 	case "api.bventy.in":
 		url = "https://api.bventy.in/health"
 	case "Neon":
-		url = "https://status.neon.tech" 
+		// Direct DB Ping
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := db.Pool.Ping(ctx); err != nil {
+			return StatusDown
+		}
+		return StatusOperational
 	case "Render":
-		url = "https://status.render.com"
+		// Ping our own heartbeat on Render
+		url = "https://api.bventy.in/health"
 	case "Cloudflare R2":
+		// Generic but standard endpoint
 		url = "https://www.cloudflarestatus.com"
 	case "PostHog":
 		url = "https://status.posthog.com"
 	case "Umami":
-		url = "https://cloud.umami.is"
+		// Ping our own instance's script
+		url = "https://umami.bventy.in/script.js" 
 	case "Resend":
-		url = "https://status.resend.com"
+		// Ping API
+		url = "https://api.resend.com/health" // Or status
 	default:
 		return StatusOperational
 	}
