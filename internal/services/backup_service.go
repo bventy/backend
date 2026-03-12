@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bventy/backend/internal/config"
+	"github.com/bventy/backend/internal/db"
 	"github.com/bventy/backend/internal/middleware"
 )
 
@@ -35,6 +36,11 @@ func NewBackupService(cfg *config.Config, media *MediaService) *BackupService {
 func (s *BackupService) Start() {
 	log.Println("🛡️  Smart Backup Service started (Idle-aware)")
 	
+	// Load initial state from DB
+	if err := s.loadLastRunTimes(); err != nil {
+		log.Printf("⚠️  Backup Service: Failed to load last run times from DB: %v", err)
+	}
+
 	// Check every 15 minutes
 	ticker := time.NewTicker(15 * time.Minute)
 	
@@ -50,7 +56,48 @@ func (s *BackupService) Start() {
 	}
 }
 
+func (s *BackupService) loadLastRunTimes() error {
+	ctx := context.Background()
+	
+	query := "SELECT key, last_run_at FROM system_maintenance WHERE key IN ('last_full_backup', 'last_schema_backup')"
+	rows, err := db.Pool.Query(ctx, query)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for rows.Next() {
+		var key string
+		var lastRun *time.Time
+		if err := rows.Scan(&key, &lastRun); err != nil {
+			return err
+		}
+		if lastRun != nil {
+			if key == "last_full_backup" {
+				s.lastFullBackup = *lastRun
+			} else if key == "last_schema_backup" {
+				s.lastSchemaBackup = *lastRun
+			}
+		}
+	}
+	
+	log.Printf("📊 Backup Service: Loaded state (Last Full: %v, Last Schema: %v)", s.lastFullBackup, s.lastSchemaBackup)
+	return nil
+}
+
+func (s *BackupService) updateLastRunTime(key string, t time.Time) error {
+	ctx := context.Background()
+	_, err := db.Pool.Exec(ctx, "UPDATE system_maintenance SET last_run_at = $1, updated_at = NOW() WHERE key = $2", t, key)
+	return err
+}
+
 func (s *BackupService) alreadyDoneToday(last time.Time, now time.Time) bool {
+	if last.IsZero() {
+		return false
+	}
 	return last.Year() == now.Year() && last.Month() == now.Month() && last.Day() == now.Day()
 }
 
@@ -80,6 +127,7 @@ func (s *BackupService) checkAndPerformBackups() {
 				log.Printf("❌ Full backup failed: %v", err)
 			} else {
 				s.lastFullBackup = now
+				_ = s.updateLastRunTime("last_full_backup", now)
 				log.Println("✅ Full backup completed")
 			}
 		} else {
@@ -103,6 +151,7 @@ func (s *BackupService) checkAndPerformBackups() {
 				log.Printf("❌ Schema backup failed: %v", err)
 			} else {
 				s.lastSchemaBackup = now
+				_ = s.updateLastRunTime("last_schema_backup", now)
 				log.Println("✅ Schema backup completed")
 			}
 		} else {
