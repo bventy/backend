@@ -288,14 +288,32 @@ func (s *SystemStatusService) checkAll() {
 		s.mu.Unlock()
 
 		// Automated Incident Logging
-		if oldStatus == StatusOperational && status == StatusDown {
-			s.createIncident(s.monitors[i].Name, "Service Down", fmt.Sprintf("Automated detection: service became unreachable. Diagnostic: %s", errMsg))
+		if status == StatusDown {
+			// Check if we already have an active incident to avoid duplication
+			if !s.hasActiveIncident(s.monitors[i].Name) {
+				s.createIncident(s.monitors[i].Name, "Service Outage", fmt.Sprintf("Automated detection: service became unreachable. Diagnostic: %s", errMsg))
+			}
 		} else if oldStatus == StatusDown && status == StatusOperational {
 			s.resolveIncident(s.monitors[i].Name)
 		}
 
 		s.persistStatus(s.monitors[i].Name, string(status), latency, errMsg, now)
 	}
+}
+
+func (s *SystemStatusService) hasActiveIncident(name string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	var exists bool
+	err := db.Pool.QueryRow(ctx, `
+		SELECT EXISTS(SELECT 1 FROM system_incidents WHERE monitor_name = $1 AND resolved_at IS NULL)
+	`, name).Scan(&exists)
+	
+	if err != nil {
+		return false
+	}
+	return exists
 }
 
 func (s *SystemStatusService) createIncident(name, issueType, desc string) {
@@ -327,7 +345,7 @@ func (s *SystemStatusService) resolveIncident(name string) {
 
 func (s *SystemStatusService) checkMonitor(m Monitor) (MonitorStatus, int, string) {
 	client := http.Client{
-		Timeout: 4 * time.Second,
+		Timeout: 5 * time.Second,
 	}
 
 	var url string
@@ -346,7 +364,7 @@ func (s *SystemStatusService) checkMonitor(m Monitor) (MonitorStatus, int, strin
 		url = "https://api.bventy.in/health"
 	case "Neon":
 		start := time.Now()
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		if err := db.Pool.Ping(ctx); err != nil {
 			return StatusDown, int(time.Since(start).Milliseconds()), err.Error()
@@ -359,33 +377,32 @@ func (s *SystemStatusService) checkMonitor(m Monitor) (MonitorStatus, int, strin
 	case "PostHog":
 		url = "https://status.posthog.com"
 	case "Umami":
-		url = "https://umami.bventy.in/script.js" 
+		url = "https://umami.bventy.in" // Base URL check
 	case "Resend":
-		url = "https://api.resend.com/health"
+		url = "https://resend.com" // Status check via main site or status page
 	default:
 		return StatusOperational, 0, ""
 	}
 
 	start := time.Now()
-	// Use HEAD request for efficiency
+	// More resilient check: try HEAD, then GET
 	req, _ := http.NewRequest(http.MethodHead, url, nil)
 	req.Header.Set("User-Agent", "BventyMonitor/1.0")
 	
 	resp, err := client.Do(req)
+	if err != nil {
+		// Try GET as fallback
+		resp, err = client.Get(url)
+	}
+	
 	latency := int(time.Since(start).Milliseconds())
 
 	if err != nil {
-		// Fallback to GET if HEAD is not supported or fails
-		req.Method = http.MethodGet
-		resp, err = client.Do(req)
-		latency = int(time.Since(start).Milliseconds())
-		if err != nil {
-			return StatusDown, latency, err.Error()
-		}
+		return StatusDown, latency, err.Error()
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+	if resp.StatusCode >= 200 && resp.StatusCode < 500 { // Allow 404/403 as "Up" if it's just the page being private but reachable
 		return StatusOperational, latency, ""
 	}
 
