@@ -160,22 +160,28 @@ func (h *VendorHandler) GetVendorPricingRules(c *gin.Context) {
 	var rules struct {
 		WeekendPremiumEnabled       bool    `json:"weekend_premium_enabled"`
 		WeekendPremiumPercentage    float64 `json:"weekend_premium_percentage"`
+		WeekendPremiumType         string  `json:"weekend_premium_type"`
 		LastMinuteBookingEnabled    bool    `json:"last_minute_booking_enabled"`
 		LastMinuteBookingPercentage float64 `json:"last_minute_booking_percentage"`
+		LastMinuteBookingType      string  `json:"last_minute_booking_type"`
 		LastMinuteDays              int     `json:"last_minute_days"`
 	}
 
 	err = db.Pool.QueryRow(c.Request.Context(),
-		"SELECT weekend_premium_enabled, weekend_premium_percentage, last_minute_booking_enabled, last_minute_booking_percentage, last_minute_days FROM vendor_pricing_rules WHERE vendor_id = $1",
-		vendorID).Scan(&rules.WeekendPremiumEnabled, &rules.WeekendPremiumPercentage, &rules.LastMinuteBookingEnabled, &rules.LastMinuteBookingPercentage, &rules.LastMinuteDays)
+		`SELECT weekend_premium_enabled, weekend_premium_percentage, COALESCE(weekend_premium_type, 'percentage'), 
+		 last_minute_booking_enabled, last_minute_booking_percentage, COALESCE(last_minute_booking_type, 'percentage'), last_minute_days 
+		 FROM vendor_pricing_rules WHERE vendor_id = $1`,
+		vendorID).Scan(&rules.WeekendPremiumEnabled, &rules.WeekendPremiumPercentage, &rules.WeekendPremiumType, &rules.LastMinuteBookingEnabled, &rules.LastMinuteBookingPercentage, &rules.LastMinuteBookingType, &rules.LastMinuteDays)
 
 	if err != nil {
 		// If no rules found, return defaults
 		c.JSON(http.StatusOK, gin.H{
 			"weekend_premium_enabled":        false,
 			"weekend_premium_percentage":     15,
+			"weekend_premium_type":           "percentage",
 			"last_minute_booking_enabled":    false,
 			"last_minute_booking_percentage": 20,
+			"last_minute_booking_type":       "percentage",
 			"last_minute_days":               7,
 		})
 		return
@@ -195,8 +201,10 @@ func (h *VendorHandler) UpdateVendorPricingRules(c *gin.Context) {
 	var req struct {
 		WeekendPremiumEnabled       *bool    `json:"weekend_premium_enabled"`
 		WeekendPremiumPercentage    *float64 `json:"weekend_premium_percentage"`
+		WeekendPremiumType         *string  `json:"weekend_premium_type"`
 		LastMinuteBookingEnabled    *bool    `json:"last_minute_booking_enabled"`
 		LastMinuteBookingPercentage *float64 `json:"last_minute_booking_percentage"`
+		LastMinuteBookingType      *string  `json:"last_minute_booking_type"`
 		LastMinuteDays              *int     `json:"last_minute_days"`
 	}
 
@@ -206,18 +214,20 @@ func (h *VendorHandler) UpdateVendorPricingRules(c *gin.Context) {
 	}
 
 	query := `
-		INSERT INTO vendor_pricing_rules (vendor_id, weekend_premium_enabled, weekend_premium_percentage, last_minute_booking_enabled, last_minute_booking_percentage, last_minute_days)
-		VALUES ($1, COALESCE($2, false), COALESCE($3, 15), COALESCE($4, false), COALESCE($5, 20), COALESCE($6, 7))
+		INSERT INTO vendor_pricing_rules (vendor_id, weekend_premium_enabled, weekend_premium_percentage, weekend_premium_type, last_minute_booking_enabled, last_minute_booking_percentage, last_minute_booking_type, last_minute_days)
+		VALUES ($1, COALESCE($2, false), COALESCE($3, 15), COALESCE($4, 'percentage'), COALESCE($5, false), COALESCE($6, 20), COALESCE($7, 'percentage'), COALESCE($8, 7))
 		ON CONFLICT (vendor_id) DO UPDATE SET
 			weekend_premium_enabled = COALESCE($2, vendor_pricing_rules.weekend_premium_enabled),
 			weekend_premium_percentage = COALESCE($3, vendor_pricing_rules.weekend_premium_percentage),
-			last_minute_booking_enabled = COALESCE($4, vendor_pricing_rules.last_minute_booking_enabled),
-			last_minute_booking_percentage = COALESCE($5, vendor_pricing_rules.last_minute_booking_percentage),
-			last_minute_days = COALESCE($6, vendor_pricing_rules.last_minute_days),
+			weekend_premium_type = COALESCE($4, vendor_pricing_rules.weekend_premium_type),
+			last_minute_booking_enabled = COALESCE($5, vendor_pricing_rules.last_minute_booking_enabled),
+			last_minute_booking_percentage = COALESCE($6, vendor_pricing_rules.last_minute_booking_percentage),
+			last_minute_booking_type = COALESCE($7, vendor_pricing_rules.last_minute_booking_type),
+			last_minute_days = COALESCE($8, vendor_pricing_rules.last_minute_days),
 			updated_at = now()
 	`
 
-	_, err = db.Pool.Exec(c.Request.Context(), query, vendorID, req.WeekendPremiumEnabled, req.WeekendPremiumPercentage, req.LastMinuteBookingEnabled, req.LastMinuteBookingPercentage, req.LastMinuteDays)
+	_, err = db.Pool.Exec(c.Request.Context(), query, vendorID, req.WeekendPremiumEnabled, req.WeekendPremiumPercentage, req.WeekendPremiumType, req.LastMinuteBookingEnabled, req.LastMinuteBookingPercentage, req.LastMinuteBookingType, req.LastMinuteDays)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update pricing rules: " + err.Error()})
 		return
@@ -408,14 +418,18 @@ func (h *VendorHandler) GetPublicVendorDetails(c *gin.Context) {
 	var wpe, lbe bool
 	var wpp, lbp float64
 	var lbd int
-	err = db.Pool.QueryRow(c.Request.Context(), "SELECT weekend_premium_enabled, weekend_premium_percentage, last_minute_booking_enabled, last_minute_booking_percentage, last_minute_days FROM vendor_pricing_rules WHERE vendor_id = $1", vendorID).
-		Scan(&wpe, &wpp, &lbe, &lbp, &lbd)
+	var wpt, lbt string
+	err = db.Pool.QueryRow(c.Request.Context(), 
+		"SELECT weekend_premium_enabled, weekend_premium_percentage, COALESCE(weekend_premium_type, 'percentage'), last_minute_booking_enabled, last_minute_booking_percentage, COALESCE(last_minute_booking_type, 'percentage'), last_minute_days FROM vendor_pricing_rules WHERE vendor_id = $1", 
+		vendorID).Scan(&wpe, &wpp, &wpt, &lbe, &lbp, &lbt, &lbd)
 	if err == nil {
 		rules = gin.H{
 			"weekend_premium_enabled":        wpe,
 			"weekend_premium_percentage":     wpp,
+			"weekend_premium_type":           wpt,
 			"last_minute_booking_enabled":    lbe,
 			"last_minute_booking_percentage": lbp,
+			"last_minute_booking_type":       lbt,
 			"last_minute_days":               lbd,
 		}
 	}
