@@ -89,19 +89,90 @@ func (h *QuotesHandler) CreateQuoteRequest(c *gin.Context) {
 		return
 	}
 
-	// 3. Insert quote request
+	// 3. Fetch Vendor Pricing Rules
+	var rules struct {
+		WeekendEnabled  bool    `json:"weekend_premium_enabled"`
+		WeekendPct      float64 `json:"weekend_premium_percentage"`
+		WeekendType     string  `json:"weekend_premium_type"`
+		LastMinuteEnabled bool  `json:"last_minute_booking_enabled"`
+		LastMinutePct   float64 `json:"last_minute_booking_percentage"`
+		LastMinuteType  string  `json:"last_minute_booking_type"`
+		LastMinuteDays  int     `json:"last_minute_days"`
+	}
+	rulesQuery := `
+		SELECT 
+			COALESCE(weekend_premium_enabled, false),
+			COALESCE(weekend_premium_percentage, 15),
+			COALESCE(weekend_premium_type, 'percentage'),
+			COALESCE(last_minute_booking_enabled, false),
+			COALESCE(last_minute_booking_percentage, 20),
+			COALESCE(last_minute_booking_type, 'percentage'),
+			COALESCE(last_minute_days, 7)
+		FROM vendor_pricing_rules 
+		WHERE vendor_id::text = $1
+	`
+	_ = db.Pool.QueryRow(ctx, rulesQuery, payload.VendorID).Scan(
+		&rules.WeekendEnabled, &rules.WeekendPct, &rules.WeekendType,
+		&rules.LastMinuteEnabled, &rules.LastMinutePct, &rules.LastMinuteType, &rules.LastMinuteDays,
+	)
+	// rules will have default COALESCE values or initialized values if query fails
+
+	// 4. Calculate Surcharge Details
+	var eventDate time.Time
+	_ = db.Pool.QueryRow(ctx, "SELECT event_date FROM events WHERE id::text = $1", payload.EventID).Scan(&eventDate)
+
+	isPremium := false
+	surchargeDetails := map[string]interface{}{
+		"applied_rules": []string{},
+		"breakdown":     map[string]interface{}{},
+	}
+
+	// Weekend Rule (Fri/Sat/Sun)
+	weekday := eventDate.Weekday()
+	if rules.WeekendEnabled && (weekday == time.Friday || weekday == time.Saturday || weekday == time.Sunday) {
+		isPremium = true
+		surchargeDetails["applied_rules"] = append(surchargeDetails["applied_rules"].([]string), "weekend_premium")
+		label := fmt.Sprintf("+%v%%", rules.WeekendPct)
+		if rules.WeekendType == "fixed" {
+			label = fmt.Sprintf("+₹%v", rules.WeekendPct)
+		}
+		surchargeDetails["breakdown"].(map[string]interface{})["weekend_premium"] = map[string]interface{}{
+			"type":  rules.WeekendType,
+			"value": rules.WeekendPct,
+			"label": label,
+		}
+	}
+
+	// Last Minute Rule
+	daysUntilEvent := int(time.Until(eventDate).Hours() / 24)
+	if rules.LastMinuteEnabled && daysUntilEvent >= 0 && daysUntilEvent <= rules.LastMinuteDays {
+		isPremium = true
+		surchargeDetails["applied_rules"] = append(surchargeDetails["applied_rules"].([]string), "last_minute")
+		label := fmt.Sprintf("+%v%%", rules.LastMinutePct)
+		if rules.LastMinuteType == "fixed" {
+			label = fmt.Sprintf("+₹%v", rules.LastMinutePct)
+		}
+		surchargeDetails["breakdown"].(map[string]interface{})["last_minute_booking"] = map[string]interface{}{
+			"type":           rules.LastMinuteType,
+			"value":          rules.LastMinutePct,
+			"threshold_days": rules.LastMinuteDays,
+			"label":          label,
+		}
+	}
+
+	// 5. Insert quote request
 	var quoteID string
 	insertQuoteQuery := `
 		INSERT INTO quote_requests (
 			event_id, vendor_id, organizer_user_id, message, budget_range, 
-			special_requirements, deadline, status
+			special_requirements, deadline, status, surcharge_details, is_premium
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9)
 		RETURNING id
 	`
 	err = db.Pool.QueryRow(ctx, insertQuoteQuery,
 		payload.EventID, payload.VendorID, organizerID, payload.Message, payload.BudgetRange,
-		payload.SpecialRequirements, payload.Deadline,
+		payload.SpecialRequirements, payload.Deadline, surchargeDetails, isPremium,
 	).Scan(&quoteID)
 	if err != nil {
 		log.Printf("ERROR: Failed to create quote request: %v", err)
