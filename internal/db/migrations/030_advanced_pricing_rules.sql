@@ -4,3 +4,4 @@ ALTER TABLE vendor_pricing_rules ADD COLUMN IF NOT EXISTS last_minute_booking_ty
 
 -- Ensure types follow a convention
 -- CHECK constraints if needed, but keeping it flexible for now
+-- Migration applied on Sun Apr 19 03:47:53 PM IST 2026
